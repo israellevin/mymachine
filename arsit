@@ -1,67 +1,58 @@
 #!/bin/bash
 
-if [ -d chroot ]; then
-    stage=9
-    echo 'resuming from existing chroot directory'
-else
-    stages=(0-minbase 1-base 2-graphics)
-    for (( stage = 2 ; stage >= 0 ; stage-- )); do
-        [ -d "${stages[$stage]}" ] && break
-    done
+if ! pushd chroot; then
+    echo creating tmpfs
     mkdir chroot
-    mount -t tmpfs -o size=60% none chroot
-    echo "resuming stage $stage from ${stages[$stage]}"
+    pushd chroot
+    mount -t tmpfs -o size=60% none .
 fi
-pushd chroot
 
-stageForward(){
-    ((stage++))
-    echo "completed stage $stage - copying to (${stages[$stage]})"
-    cp -ax ../chroot ../${stages[$stage]}
+if (read -n 1 -p 'bootstrap? (y/N) ' q; echo; [ y = "$q" ]); then
+    echo debootstrapping
+    debootstrap --variant=minbase sid . http://debian.co.il/debian
+fi
+
+chrootumount(){
+    [ y != "$mounted" ] && return
+    echo unmounting virtual fs
+    for b in dev/pts dev sys proc; do
+        if ! umount $b; then echo could not umount $b; exit 1; fi
+    done
+    trap - EXIT HUP INT TERM
+    mounted=n
 }
 
-if (( stage < 0 )); then
-    debootstrap --variant=minbase sid . http://debian.co.il/debian
-    stageForward
-elif (( stage != 9 )); then
-    cp -a ../${stages[$stage]}/* .
+chrootmount(){
+    [ y = "$mounted" ] && return
+    echo mounting virtual fs
+    mount -t proc none proc
+    mount -t sysfs none sys
+    mount -o bind /dev dev
+    mount -t devpts pts dev/pts
+    mounted=y
+    trap 'chrootumount' EXIT HUP INT TERM
+}
+
+if (read -n 1 -p 'base? (y/N) ' q; echo; [ y = "$q" ]); then
+    echo arsawat > etc/hostname
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install linux-image-686-pae
+    chroot . apt-get --no-install-recommends --force-yes -y install acpi bash-completion dbus git hdparm less mc pciutils tmux unzip unrar-free udisks usbutils vim
+    chroot . apt-get --no-install-recommends --force-yes -y install aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs w3m wget wireless-tools
+    chroot . apt-get --no-install-recommends --force-yes -y install dialog locales
+    chroot . dpkg-reconfigure locales
+    chroot . dpkg-reconfigure tzdata
+    chroot . adduser i
+    chroot . addgroup wheel
+    chroot . adduser i wheel
+    chroot . passwd -d root
+    cp boot/vmlinuz* ../.
+    cp boot/initrd* ../.
 fi
 
-if (( stage < 2 )); then
-    chroot_umount(){
-        #chroot . /etc/init.d/dbus stop
-        #chroot . /etc/init.d/udev stop
-        for b in dev sys proc dev/pts; do
-            umount $b
-        done
-        #/etc/init.d/udev start
-        #/etc/init.d/dbus start
-        trap - EXIT HUP INT TERM
-    }
-    #/etc/init.d/udev stop
-    #/etc/init.d/dbus stop
-    for b in dev sys proc dev/pts; do
-        mount -B /$b $b
-    done
-    trap 'chroot_umount' EXIT HUP INT TERM
-
-    if (( stage < 1 )); then
-        echo arsawat > etc/hostname
-        chroot . apt-get --no-install-recommends --force-yes -y install linux-image-686-pae
-        chroot . apt-get --no-install-recommends --force-yes -y install acpi bash-completion dbus git hdparm less mc pciutils tmux unzip unrar-free udisks usbutils vim
-        chroot . apt-get --no-install-recommends --force-yes -y install aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs w3m wget wireless-tools
-        chroot . apt-get --no-install-recommends --force-yes -y install dialog locales
-        chroot . dpkg-reconfigure locales
-        chroot . dpkg-reconfigure tzdata
-        chroot . adduser i
-        chroot . addgroup wheel
-        chroot . adduser i wheel
-        chroot . passwd -d root
-        cp boot/vmlinuz* ../.
-        cp boot/initrd* ../.
-        stageForward
-    fi
-
+if (read -n 1 -p 'graphic? (y/N) ' q; echo; [ y = "$q" ]); then
+    echo installing X
+    chrootmount
     chroot . apt-get --no-install-recommends --force-yes -y install libxcb-icccm4 libxcb-keysyms1 x11-xserver-utils xinit xserver-xorg{,\-input-{kbd,mouse,synaptics},\-video-{fbdev,vesa,intel,nouveau,radeon}}
     chroot . apt-get --no-install-recommends --force-yes -y install clipit redshift rxvt-unicode-256color sux unclutter vim-gtk
 
@@ -77,31 +68,27 @@ if (( stage < 2 )); then
     chroot . adduser i video
     chroot . adduser i disk
     chroot . adduser i fuse
-
-    if (read -n 1 -p 'taint with nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
-        chroot . apt-get --no-install-recommends --force-yes -y install linux-headers-rt-686-pae
-        chroot . apt-get --no-install-recommends --force-yes -y install nvidia-kernel-dkms nvidia-vdpau-driver libgl1-nvidia-glx xserver-xorg-video-nvidia
-    fi
-    if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
-        chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
-    fi
-    if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
-        chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
-    fi
-
-    chroot . apt-get clean
-    chroot_umount
-    stageForward
 fi
+
+if (read -n 1 -p 'taint with nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install linux-headers-686-pae
+    chroot . apt-get --no-install-recommends --force-yes -y install nvidia-kernel-dkms nvidia-vdpau-driver libgl1-nvidia-glx xserver-xorg-video-nvidia
+fi
+if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
+fi
+if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
+fi
+
+chroot . apt-get clean
+chrootumount
 
 if (read -n 1 -p 'overlay? (y/N) ' q; echo; [ y = "$q" ]); then
     rsync -arv ../overlay/ .
-fi
-
-if (read -n 1 -p 'trim? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf boot
-    rm -rf usr/share{doc,info,man}
-    find usr/share/locale/ -maxdepth 1 -mindepth 1 ! -iname 'en' -exec rm -rf {} \;
 fi
 
 gettarget(){
@@ -114,6 +101,27 @@ gettarget(){
     fi
     gettarget
 }
+
+if (read -n 1 -p 'copy kernel? (y/N) ' q; echo; [ y = "$q" ]); then
+    gettarget
+    cp vmlinuz* "$tr/arsvmlinuz"
+fi
+
+if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
+    rm -rf initrd
+    mkdir initrd
+    pushd initrd
+    cat ../boot/initrd* | gunzip | cpio -i
+    rm -rf lib/modules
+    cp -a ../lib/modules lib/.
+    mkdir 'mnt'
+    cp ../../local scripts/.
+    cp `which pv` 'bin/.'
+    cp `which tar` 'bin/.'
+    gettarget
+    find . -mount | cpio -o -H newc > "$tr/arsinitrd"
+    popd
+fi
 
 if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
     rm -rf dev
@@ -133,31 +141,6 @@ if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
 fi
 
 popd
-
-if (read -n 1 -p 'copy kernel? (y/N) ' q; echo; [ y = "$q" ]); then
-    gettarget
-    cp vmlinuz* "$tr/arsvmlinuz"
-fi
-
-
-if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf xinitrd
-    mkdir xinitrd
-    pushd xinitrd
-    cat ../initrd* | gunzip | cpio -i
-    rm -rf lib/modules
-    cp -a ../chroot/lib/modules lib/.
-    mkdir 'mnt'
-    cp ../local scripts/.
-    cp `which pv` 'bin/.'
-    cp `which tar` 'bin/.'
-    #cp `which depmod` 'bin/.'
-    #chroot . depmod
-    gettarget
-    find . -mount | cpio -o -H newc > "$tr/arsinitrd"
-    popd
-fi
-
 read -n 1 -p 'clean chroot? (y/N) ' q; echo; [ y = "$q" ] || exit 0
 umount chroot
 rmdir chroot
