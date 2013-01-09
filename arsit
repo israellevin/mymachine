@@ -1,80 +1,98 @@
 #!/bin/bash
 
-if [ ! -d chroot ]; then
+if [ -d chroot ]; then
+    stage=9
+    echo 'resuming from existing chroot directory'
+else
+    stages=(0-minbase 1-base 2-graphics)
+    for (( stage = 2 ; stage >= 0 ; stage-- )); do
+        [ -d "${stages[$stage]}" ] && break
+    done
     mkdir chroot
-    debootstrap --variant=minbase sid chroot http://debian.co.il/debian
-    cp -a chroot 01-base
+    mount -t tmpfs -o size=60% none chroot
+    echo "resuming stage $stage from ${stages[$stage]}"
+fi
+pushd chroot
+
+stageForward(){
+    ((stage++))
+    echo "completed stage $stage - copying to (${stages[$stage]})"
+    cp -ax ../chroot ../${stages[$stage]}
+}
+
+if (( stage < 0 )); then
+    debootstrap --variant=minbase sid . http://debian.co.il/debian
+    stageForward
+elif (( stage != 9 )); then
+    cp -a ../${stages[$stage]}/* .
 fi
 
-cd chroot
-mount -B /dev dev
-mount -B /sys sys
-mount -B /proc proc
-mount -B /dev/pts dev/pts
-/etc/init.d/mpd stop
+if (( stage < 2 )); then
+    chroot_umount(){
+        #chroot . /etc/init.d/dbus stop
+        #chroot . /etc/init.d/udev stop
+        for b in dev sys proc dev/pts; do
+            umount $b
+        done
+        #/etc/init.d/udev start
+        #/etc/init.d/dbus start
+        trap - EXIT HUP INT TERM
+    }
+    #/etc/init.d/udev stop
+    #/etc/init.d/dbus stop
+    for b in dev sys proc dev/pts; do
+        mount -B /$b $b
+    done
+    trap 'chroot_umount' EXIT HUP INT TERM
 
-if [ ! -d lib/modules ]; then
-    chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install linux-image-rt-686-pae
-    cp -ax . ../02-kernel
-fi
+    if (( stage < 1 )); then
+        echo arsawat > etc/hostname
+        chroot . apt-get --no-install-recommends --force-yes -y install linux-image-686-pae
+        chroot . apt-get --no-install-recommends --force-yes -y install acpi bash-completion dbus git hdparm less mc pciutils tmux unzip unrar-free udisks usbutils vim
+        chroot . apt-get --no-install-recommends --force-yes -y install aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs w3m wget wireless-tools
+        chroot . apt-get --no-install-recommends --force-yes -y install dialog locales
+        chroot . dpkg-reconfigure locales
+        chroot . dpkg-reconfigure tzdata
+        chroot . adduser i
+        chroot . addgroup wheel
+        chroot . adduser i wheel
+        chroot . passwd -d root
+        cp boot/vmlinuz* ../.
+        cp boot/initrd* ../.
+        stageForward
+    fi
 
-if (read -n 1 -p 'configure? (y/N) ' q; echo; [ y = "$q" ]); then
-    echo arsawat > etc/hostname
-    chroot . apt-get --no-install-recommends --force-yes -y install adduser dialog locales tzdata
-    chroot . dpkg-reconfigure locales
-    chroot . dpkg-reconfigure tzdata
-    chroot . adduser i
-    chroot . addgroup wheel
-    chroot . adduser i wheel
-    chroot . passwd -d root
-    cp -ax . ../03-configured
-fi
+    chroot . apt-get --no-install-recommends --force-yes -y install libxcb-icccm4 libxcb-keysyms1 x11-xserver-utils xinit xserver-xorg{,\-input-{kbd,mouse,synaptics},\-video-{fbdev,vesa,intel,nouveau,radeon}}
+    chroot . apt-get --no-install-recommends --force-yes -y install clipit redshift rxvt-unicode-256color sux unclutter vim-gtk
 
-if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
     echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
+    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list
+    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
     chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install bash-completion dbus git gnupg less locales firmware-iwlwifi mc pciutils tmux unzip unrar usbutils vim
-    chroot . apt-get --no-install-recommends --force-yes -y install afuse aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs udisks w3m wget wireless-tools
-    chroot . apt-get --no-install-recommends --force-yes -y install alsa-base alsa-utils mpc mpd mplayer2
+    chroot . apt-get --force-yes -y install alsa-base alsa-utils mplayer2
+    chroot . apt-get --force-yes -y install libwebkitgtk-3.0-0
+    chroot . apt-get --force-yes -y install libdvdcss2
+    chroot . apt-get --force-yes -y install ceni
     chroot . adduser i audio
     chroot . adduser i video
     chroot . adduser i disk
     chroot . adduser i fuse
-    cp -ax . ../04-packages
-fi
-
-if (read -n 1 -p 'install graphics? (y/N) ' q; echo; [ y = "$q" ]); then
-    chroot . apt-get --no-install-recommends --force-yes -y install x11-xserver-utils xinit xserver-xorg{,\-input-all,\-video-{fbdev,vesa,intel,nouveau,radeon}}
-    chroot . apt-get --no-install-recommends --force-yes -y install clipit libwebkitgtk-1.0-0 rxvt-unicode-256color sux unclutter vim-gui-common
-
-    if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
-        chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
-    fi
 
     if (read -n 1 -p 'taint with nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
         chroot . apt-get --no-install-recommends --force-yes -y install linux-headers-rt-686-pae
         chroot . apt-get --no-install-recommends --force-yes -y install nvidia-kernel-dkms nvidia-vdpau-driver libgl1-nvidia-glx xserver-xorg-video-nvidia
     fi
+    if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
+        chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
+    fi
+    if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
+        chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
+    fi
 
-    chroot . apt-get --no-install-recommends --force-yes -y install chromium xbmc
-
-    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list
-    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
-    chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install libdvdcss2
-    chroot . apt-get --no-install-recommends --force-yes -y install ceni
-    cp -ax . ../05-graphics
+    chroot . apt-get clean
+    chroot_umount
+    stageForward
 fi
-
-(read -n 1 -p 'anything else before unmounting? (y/N) ' q; echo; [ y = "$q" ]) && chroot . bash
-chroot . /etc/init.d/mpd stop
-chroot . /etc/init.d/dbus stop
-chroot . /etc/init.d/udev stop
-umount dev/pts && umount proc && umount sys && umount dev || exit 1
-/etc/init.d/udev start
-/etc/init.d/dbus start
-/etc/init.d/mpd start
 
 if (read -n 1 -p 'overlay? (y/N) ' q; echo; [ y = "$q" ]); then
     rsync -arv ../overlay/ .
@@ -82,17 +100,14 @@ fi
 
 if (read -n 1 -p 'trim? (y/N) ' q; echo; [ y = "$q" ]); then
     rm -rf boot
-    rm -rf var/cache/*
-    rm -rf usr/share{doc,man}
-    find usr/share/locale/ -maxdepth 1 -mindepth 1 ! -iname 'en' ! -iname 'he' -exec rm -rf {} \;
+    rm -rf usr/share{doc,info,man}
+    find usr/share/locale/ -maxdepth 1 -mindepth 1 ! -iname 'en' -exec rm -rf {} \;
 fi
-
-cd ..
 
 gettarget(){
     if [ -d "$tr" ]; then
         read -n 1 -p "copy to $tr? (Y/n) " q; echo; echo
-        [ n = "$q" ] ||  return
+        [ n = "$q" ] || return 0
         tr=''
     else
         read -p 'destination (/media/booter/syslinux): ' tr && [ "$tr" ] || tr=/media/booter/syslinux
@@ -101,48 +116,49 @@ gettarget(){
 }
 
 if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
-    cd chroot
     rm -rf dev
     rm -rf sys
     rm -rf run
     rm -rf proc
     rm -rf tmp
     rm -rf mnt
-    rm -rf ars
-    rm -rf pub
     mkdir dev
     mkdir sys
     mkdir run
     mkdir proc
     mkdir -m 777 tmp
-    mkdir -m 777 ars
-    mkdir -m 777 pub
+    mkdir -m 777 mnt
     gettarget
     tar cf - . | pv -s $(du -sb . | awk '{print $1}') > "$tr/ars.tar"
-    cd ..
 fi
+
+popd
 
 if (read -n 1 -p 'copy kernel? (y/N) ' q; echo; [ y = "$q" ]); then
     gettarget
-    cp 04-packages/boot/vmlinuz* "$tr/arsvmlinuz"
+    cp vmlinuz* "$tr/arsvmlinuz"
 fi
 
-if [ ! -d initrd ] || (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf initrd
-    mkdir initrd
-    cd initrd
-    cat ../04-packages/boot/initrd* | gunzip | cpio -i
+
+if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
+    rm -rf xinitrd
+    mkdir xinitrd
+    pushd xinitrd
+    cat ../initrd* | gunzip | cpio -i
     rm -rf lib/modules
-    cp -a ../04-packages/lib/modules lib/.
+    cp -a ../chroot/lib/modules lib/.
     mkdir 'mnt'
     cp ../local scripts/.
     cp `which pv` 'bin/.'
     cp `which tar` 'bin/.'
-    cp `which depmod` 'bin/.'
-    chroot . depmod
+    #cp `which depmod` 'bin/.'
+    #chroot . depmod
     gettarget
     find . -mount | cpio -o -H newc > "$tr/arsinitrd"
-    cd ..
+    popd
 fi
 
+read -n 1 -p 'clean chroot? (y/N) ' q; echo; [ y = "$q" ] || exit 0
+umount chroot
+rmdir chroot
 exit 0
