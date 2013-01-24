@@ -13,9 +13,11 @@ if (read -n 1 -p 'bootstrap? (y/N) ' q; echo; [ y = "$q" ]); then
 fi
 
 chrootumount(){
+    return
     [ y != "$mounted" ] && return
     echo unmounting virtual fs
-    for b in dev/pts dev sys proc; do
+    #for b in dev/pts dev sys proc; do
+    for b in sys proc; do
         if ! umount $b; then echo could not umount $b; exit 1; fi
     done
     trap - EXIT HUP INT TERM
@@ -23,21 +25,24 @@ chrootumount(){
 }
 
 chrootmount(){
+    return
     [ y = "$mounted" ] && return
     echo mounting virtual fs
     mount -t proc none proc
     mount -t sysfs none sys
-    mount -o bind /dev dev
-    mount -t devpts pts dev/pts
+    #mount -o bind /dev dev
+    #mount -t devpts pts dev/pts
     mounted=y
     trap 'chrootumount' EXIT HUP INT TERM
 }
 
 if (read -n 1 -p 'base? (y/N) ' q; echo; [ y = "$q" ]); then
     echo arsawat > etc/hostname
+    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
     chrootmount
+    chroot . apt-get update
     chroot . apt-get --no-install-recommends --force-yes -y install linux-image-686-pae
-    chroot . apt-get --no-install-recommends --force-yes -y install acpi bash-completion dbus git hdparm less mc pciutils tmux unzip unrar-free udisks usbutils vim
+    chroot . apt-get --no-install-recommends --force-yes -y install acpi alsa-base alsa-utils bash-completion dbus git hdparm less mc pciutils sensord tmux unzip unrar-free udisks usbutils vim
     chroot . apt-get --no-install-recommends --force-yes -y install aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs w3m wget wireless-tools
     chroot . apt-get --no-install-recommends --force-yes -y install dialog locales
     chroot . dpkg-reconfigure locales
@@ -50,38 +55,48 @@ if (read -n 1 -p 'base? (y/N) ' q; echo; [ y = "$q" ]); then
     cp boot/initrd* ../.
 fi
 
+if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
+fi
+
+if (read -n 1 -p 'ceni? (y/N) ' q; echo; [ y = "$q" ]); then
+    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
+    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
+    chrootmount
+    chroot . apt-get update
+    chroot . apt-get --no-install-recommends --force-yes -y install ceni
+fi
+
 if (read -n 1 -p 'graphic? (y/N) ' q; echo; [ y = "$q" ]); then
     echo installing X
     chrootmount
     chroot . apt-get --no-install-recommends --force-yes -y install libxcb-icccm4 libxcb-keysyms1 x11-xserver-utils xinit xserver-xorg{,\-input-{kbd,mouse,synaptics},\-video-{fbdev,vesa,intel,nouveau,radeon}}
     chroot . apt-get --no-install-recommends --force-yes -y install clipit redshift rxvt-unicode-256color sux unclutter vim-gtk
-
-    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
-    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list
-    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
-    chroot . apt-get update
-    chroot . apt-get --force-yes -y install alsa-base alsa-utils mplayer2
-    chroot . apt-get --force-yes -y install libwebkitgtk-3.0-0
-    chroot . apt-get --force-yes -y install libdvdcss2
-    chroot . apt-get --force-yes -y install ceni
+    chroot . apt-get --no-install-recommends --force-yes -y install libmpeg2-4 mplayer2 xbmc
+    chroot . apt-get --no-install-recommends --force-yes -y install libwebkitgtk-1.0-0
     chroot . adduser i audio
     chroot . adduser i video
     chroot . adduser i disk
     chroot . adduser i fuse
 fi
 
-if (read -n 1 -p 'taint with nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
+if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
+    chrootmount
+    chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
+elif (read -n 1 -p 'nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
     chrootmount
     chroot . apt-get --no-install-recommends --force-yes -y install linux-headers-686-pae
     chroot . apt-get --no-install-recommends --force-yes -y install nvidia-kernel-dkms nvidia-vdpau-driver libgl1-nvidia-glx xserver-xorg-video-nvidia
 fi
-if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
-fi
-if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
+
+if (read -n 1 -p 'dvdcss? (y/N) ' q; echo; [ y = "$q" ]); then
+    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
+    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list chrootmount
+    chroot . apt-get update
+    chroot . apt-get --no-install-recommends --force-yes -y install libdvdcss2
+    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
+    chroot . apt-get update
 fi
 
 chroot . apt-get clean
@@ -89,6 +104,17 @@ chrootumount
 
 if (read -n 1 -p 'overlay? (y/N) ' q; echo; [ y = "$q" ]); then
     rsync -arv ../overlay/ .
+fi
+
+if (read -n 1 -p 'ludi? (y/N) ' q; echo; [ y = "$q" ]); then
+    rsync -arv ../ludi/ .
+fi
+
+if (read -n 1 -p 'trim? (y/N) ' q; echo; [ y = "$q" ]); then
+    rm -rf boot
+    rm -rf usr/src
+    rm -rf usr/share{doc,info,man}
+    find usr/share/locale/ -maxdepth 1 -mindepth 1 ! -iname 'en' -exec rm -rf {} \;
 fi
 
 gettarget(){
@@ -108,11 +134,11 @@ if (read -n 1 -p 'copy kernel? (y/N) ' q; echo; [ y = "$q" ]); then
 fi
 
 if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf initrd
+    rm -rf --one-file-system initrd
     mkdir initrd
     pushd initrd
     cat ../boot/initrd* | gunzip | cpio -i
-    rm -rf lib/modules
+    rm -rf --one-file-system lib/modules
     cp -a ../lib/modules lib/.
     mkdir 'mnt'
     cp ../../local scripts/.
@@ -124,12 +150,12 @@ if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
 fi
 
 if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf dev
-    rm -rf sys
-    rm -rf run
-    rm -rf proc
-    rm -rf tmp
-    rm -rf mnt
+    rm -rf --one-file-system dev
+    rm -rf --one-file-system sys
+    rm -rf --one-file-system run
+    rm -rf --one-file-system proc
+    rm -rf --one-file-system tmp
+    rm -rf --one-file-system mnt
     mkdir dev
     mkdir sys
     mkdir run
