@@ -1,120 +1,63 @@
 #!/bin/bash
 
-if ! pushd chroot; then
+chrootdir=chroot
+overlaydir=overlay
+targetdir=/tmp
+mirror=http://debian.co.il/debian
+packages=linux-image-686-pae
+packages="$packages bash-completion bsdmainutils git mc moreutils tmux vim"
+packages="$packages ca-certificates curl dhcpcd iproute netbase openssh-server sshfs w3m wget"
+packages="$packages alsa-base alsa-utils mpc mpd mplayer2"
+packages="$packages libxcb-icccm4 libxcb-keysyms1 xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
+packages="$packages clipit libwebkitgtk-3.0-0 redshift rxvt-unicode-256color sux unclutter vim-gtk"
+packages="$packages libmpeg2-4 xautomation xbmc xul-ext-adblock-plus xul-ext-firebug"
+
+if ! pushd "$chrootdir"; then
     echo creating tmpfs
-    mkdir chroot
-    pushd chroot
-    mount -t tmpfs -o size=60% none .
+    mkdir "$chrootdir"
+    mount -t tmpfs -o size=60% none "$chrootdir" || exit 1
+    pushd "$chrootdir"
 fi
 
-if (read -n 1 -p 'bootstrap? (y/N) ' q; echo; [ y = "$q" ]); then
+if [ ! -f sbin/init ]; then
     echo debootstrapping
-    debootstrap --variant=minbase sid . http://debian.co.il/debian
+    debootstrap --variant=minbase sid . "$mirror"
 fi
 
-chrootumount(){
-    return
-    [ y != "$mounted" ] && return
-    echo unmounting virtual fs
-    #for b in dev/pts dev sys proc; do
-    for b in sys proc; do
-        if ! umount $b; then echo could not umount $b; exit 1; fi
-    done
-    trap - EXIT HUP INT TERM
-    mounted=n
-}
-
-chrootmount(){
-    return
-    [ y = "$mounted" ] && return
-    echo mounting virtual fs
-    mount -t proc none proc
-    mount -t sysfs none sys
-    #mount -o bind /dev dev
-    #mount -t devpts pts dev/pts
-    mounted=y
-    trap 'chrootumount' EXIT HUP INT TERM
-}
-
-if (read -n 1 -p 'base? (y/N) ' q; echo; [ y = "$q" ]); then
-    echo arsawat > etc/hostname
-    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
-    chrootmount
+if (read -n 1 -p 'install packages, configure and overlay? (y/N) ' q; echo; [ y = "$q" ]); then
+    mkdir -p etc/apt
+    echo "deb $mirror sid main contrib non-free" > etc/apt/sources.list
     chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install linux-image-686-pae
-    chroot . apt-get --no-install-recommends --force-yes -y install acpi alsa-base alsa-utils bash-completion dbus git hdparm less mc pciutils sensord tmux unzip unrar-free udisks usbutils vim
-    chroot . apt-get --no-install-recommends --force-yes -y install aria2 ca-certificates curl dhcpcd iputils-ping iproute iw netbase netcat openssh-server rsync sshfs w3m wget wireless-tools
-    chroot . apt-get --no-install-recommends --force-yes -y install dialog locales
-    chroot . dpkg-reconfigure locales
+    chroot . apt-get --no-install-recommends --force-yes -y install $packages
     chroot . dpkg-reconfigure tzdata
     chroot . adduser i
     chroot . addgroup wheel
     chroot . adduser i wheel
-    chroot . passwd -d root
-    cp boot/vmlinuz* ../.
-    cp boot/initrd* ../.
-fi
-
-if (read -n 1 -p 'iwlwifi? (y/N) ' q; echo; [ y = "$q" ]); then
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install firmware-iwlwifi
-fi
-
-if (read -n 1 -p 'ceni? (y/N) ' q; echo; [ y = "$q" ]); then
-    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
-    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
-    chrootmount
-    chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install ceni
-fi
-
-if (read -n 1 -p 'graphic? (y/N) ' q; echo; [ y = "$q" ]); then
-    echo installing X
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install libxcb-icccm4 libxcb-keysyms1 x11-xserver-utils xinit xserver-xorg{,\-input-{kbd,mouse,synaptics},\-video-{fbdev,vesa,intel,nouveau,radeon}}
-    chroot . apt-get --no-install-recommends --force-yes -y install clipit redshift rxvt-unicode-256color sux unclutter vim-gtk
-    chroot . apt-get --no-install-recommends --force-yes -y install libmpeg2-4 mplayer2 xbmc
-    chroot . apt-get --no-install-recommends --force-yes -y install libwebkitgtk-1.0-0
     chroot . adduser i audio
     chroot . adduser i video
     chroot . adduser i disk
     chroot . adduser i fuse
+    chroot . passwd -d root
+    rsync -av "../$overlaydir/" .
 fi
 
-if (read -n 1 -p 'free glx? (y/N) ' q; echo; [ y = "$q" ]); then
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install libgl1-mesa-glx libgl1-mesa-dri
-elif (read -n 1 -p 'nvidia? (y/N) ' q; echo; [ y = "$q" ]); then
-    chrootmount
-    chroot . apt-get --no-install-recommends --force-yes -y install linux-headers-686-pae
-    chroot . apt-get --no-install-recommends --force-yes -y install nvidia-kernel-dkms nvidia-vdpau-driver libgl1-nvidia-glx xserver-xorg-video-nvidia
-fi
-
-if (read -n 1 -p 'dvdcss? (y/N) ' q; echo; [ y = "$q" ]); then
-    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
-    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list chrootmount
+if (read -n 1 -p 'arsawat? (y/N) ' q; echo; [ y = "$q" ]); then
+    packages="nvidia-kernel-686-pae nvidia-vdpau-driver sensord xserver-xorg-video-nvidia"
+    chroot . apt-get --no-install-recommends --force-yes -y install $packages
+    rsync -av ../arsawat/ .
+elif (read -n 1 -p 'ludi? (y/N) ' q; echo; [ y = "$q" ]); then
+    packages="nvidia-kernel-686-pae nvidia-vdpau-driver xserver-xorg-video-nvidia"
+    chroot . apt-get -y purge $packages
+    chroot . apt-get -y autoremove
+    packages="acpi firmware-iwlwifi hdparm iw wireless-tools"
+    packages="$packages libgl1-mesa-dri libgl1-mesa-glx xserver-xorg-input-synaptics xserver-xorg-video-intel"
+    chroot . apt-get --force-yes -y install $packages
+    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
+    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list
     chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install libdvdcss2
-    echo deb http://debian.co.il/debian sid main contrib non-free > etc/apt/sources.list
-    chroot . apt-get update
-fi
-
-chroot . apt-get clean
-chrootumount
-
-if (read -n 1 -p 'overlay? (y/N) ' q; echo; [ y = "$q" ]); then
-    rsync -arv ../overlay/ .
-fi
-
-if (read -n 1 -p 'ludi? (y/N) ' q; echo; [ y = "$q" ]); then
-    rsync -arv ../ludi/ .
-fi
-
-if (read -n 1 -p 'trim? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf boot
-    rm -rf usr/src
-    rm -rf usr/share{doc,info,man}
-    find usr/share/locale/ -maxdepth 1 -mindepth 1 ! -iname 'en' -exec rm -rf {} \;
+    chroot . apt-get --force-yes -y install ceni libdvdcss2
+    rsync -av ../arsawat/ .
+    rsync -av ../ludi/ .
 fi
 
 gettarget(){
@@ -123,18 +66,27 @@ gettarget(){
         [ n = "$q" ] || return 0
         tr=''
     else
-        read -p 'destination (/media/booter/syslinux): ' tr && [ "$tr" ] || tr=/media/booter/syslinux
+        read -p "destination ($targetdir): " tr && [ "$tr" ] || tr="$targetdir"
     fi
     gettarget
 }
 
+if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
+    mv boot ../.
+    rm -rf --one-file-system dev sys run proc tmp mnt
+    mkdir dev sys run proc
+    mkdir -m 777 tmp mnt
+    gettarget
+    tar cf - . | pv -s $(du -sb . | awk '{print $1}') > "$tr/ars.tar"
+    mv ../boot .
+fi
+
 if (read -n 1 -p 'copy kernel? (y/N) ' q; echo; [ y = "$q" ]); then
     gettarget
-    cp vmlinuz* "$tr/arsvmlinuz"
+    cp boot/vmlinuz* "$tr/arsvmlinuz"
 fi
 
 if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf --one-file-system initrd
     mkdir initrd
     pushd initrd
     cat ../boot/initrd* | gunzip | cpio -i
@@ -147,27 +99,7 @@ if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
     gettarget
     find . -mount | cpio -o -H newc > "$tr/arsinitrd"
     popd
+    rm -rf --one-file-system initrd
 fi
 
-if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
-    rm -rf --one-file-system dev
-    rm -rf --one-file-system sys
-    rm -rf --one-file-system run
-    rm -rf --one-file-system proc
-    rm -rf --one-file-system tmp
-    rm -rf --one-file-system mnt
-    mkdir dev
-    mkdir sys
-    mkdir run
-    mkdir proc
-    mkdir -m 777 tmp
-    mkdir -m 777 mnt
-    gettarget
-    tar cf - . | pv -s $(du -sb . | awk '{print $1}') > "$tr/ars.tar"
-fi
-
-popd
-read -n 1 -p 'clean chroot? (y/N) ' q; echo; [ y = "$q" ] || exit 0
-umount chroot
-rmdir chroot
 exit 0
