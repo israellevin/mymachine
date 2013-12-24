@@ -52,8 +52,8 @@ if (read -n 1 -p 'Configure? (y/N) ' q; echo; [ y = "$q" ]); then
     chroot . passwd -d root
 fi
 
-overlaydirs[0]=arsawat
 overlaydirs[0]=overlay
+overlaydirs[1]=arsawat
 if (read -n 1 -p 'Overlay? (y/N) ' q; echo; [ y = "$q" ]); then
     for dir in "${overlaydirs[@]}"; do
         rsync -av "../$dir/" .
