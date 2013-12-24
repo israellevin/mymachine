@@ -31,9 +31,9 @@ if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
     for src in "${sources[@]}"; do
         echo "deb $src" >> etc/apt/sources.list
     done
-    mkdir fake
+    chroot . mkdir /fake
     for bin in initctl invoke-rc.d restart start stop start-stop-daemon service; do
-        ln -s bin/true fake/$bin
+        chroot . ln -s /bin/true /fake/$bin
     done
     chroot . apt-get update
     PATH=/fake:$PATH chroot . apt-get --no-install-recommends --force-yes -y install $packages
