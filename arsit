@@ -36,7 +36,7 @@ if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
         ln -s bin/true fake/$bin
     done
     chroot . apt-get update
-    chroot . PATH=/fake:$PATH apt-get --no-install-recommends --force-yes -y install $packages
+    PATH=/fake:$PATH chroot . apt-get --no-install-recommends --force-yes -y install $packages
     rm -rf fake
 fi
 
