@@ -15,6 +15,8 @@ if [ ! -f sbin/init ]; then
 fi
 
 sources[0]="$mirror sid main contrib non-free"
+sources[1]="$mirror stable main contrib non-free"
+sources[2]="http://www.deb-multimedia.org stable main non-free"
 packages=linux-image-686-pae
 packages="$packages bash-completion bc bsdmainutils git mc moreutils tmux unzip unrar vim"
 packages="$packages ca-certificates curl dhcpcd iproute netbase openssh-server sshfs w3m wget"
@@ -22,14 +24,20 @@ packages="$packages alsa-base alsa-utils mpc mpd mplayer2"
 packages="$packages libxcb-icccm4 libxcb-keysyms1 xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
 packages="$packages clipit feh imagemagick python-imaging redshift rxvt-unicode-256color sux unclutter vim-gtk"
 packages="$packages conkeror xautomation xul-ext-adblock-plus xul-ext-firebug"
+packages="$packages libmpeg2-4 nvidia-kernel-686-pae nvidia-vdpau-driver sensord xbmc xserver-xorg-video-nvidia"
 if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
     mkdir -p etc/apt
     > etc/apt/sources.list
     for src in "${sources[@]}"; do
         echo "deb $src" >> etc/apt/sources.list
     done
+    mkdir fake
+    for bin in initctl invoke-rc.d restart start stop start-stop-daemon service; do
+        ln -s bin/true fake/$bin
+    done
     chroot . apt-get update
-    chroot . apt-get --no-install-recommends --force-yes -y install $packages
+    chroot . PATH=/fake:$PATH apt-get --no-install-recommends --force-yes -y install $packages
+    rm -rf fake
 fi
 
 if (read -n 1 -p 'Configure? (y/N) ' q; echo; [ y = "$q" ]); then
@@ -44,6 +52,7 @@ if (read -n 1 -p 'Configure? (y/N) ' q; echo; [ y = "$q" ]); then
     chroot . passwd -d root
 fi
 
+overlaydirs[0]=arsawat
 overlaydirs[0]=overlay
 if (read -n 1 -p 'Overlay? (y/N) ' q; echo; [ y = "$q" ]); then
     for dir in "${overlaydirs[@]}"; do
