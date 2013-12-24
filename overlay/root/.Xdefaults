@@ -1,0 +1,18 @@
+URxvt.perl-ext-common: default,matcher
+URxvt.urlLauncher: dwb
+URxvt.colorUL: #86a2be
+
+URxvt.font: xft:DejaVu Sans Mono:autohint=true:antialias=true:size=15
+URxvt.keysym.C-9: command:\033]710;xft:DejaVu Sans Mono:autohint=true:antialias=true:size=5\007
+URxvt.keysym.C-0: command:\033]710;xft:DejaVu Sans Mono:autohint=true:antialias=true:size=10\007
+URxvt.keysym.C-minus: command:\033]710;xft:DejaVu Sans Mono:autohint=true:antialias=true:size=15\007
+URxvt.keysym.C-equal: command:\033]710;xft:DejaVu Sans Mono:autohint=true:antialias=true:size=20\007
+URxvt.saveLines: 65535
+URxvt.scrollBar: false
+URxvt.visualBell: false
+URxvt.fading: 70
+URxvt.foreground: grey
+URxvt.background: black
+URxvt.colorIT: #ffff00
+URxvt.cursorColor: green
+URxvt.color12: white

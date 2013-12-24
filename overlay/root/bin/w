@@ -1,0 +1,48 @@
+#!/bin/bash
+if [ "$1" ]; then
+    # Isolate dash (dump marker)
+    a=$*
+    q=${a%-}
+    dump=${a#$q}
+    # Isolate ' h' (rtl marker)
+    a=$q
+    q=${q% h}
+    rtl=${a#$q}
+    # Isolate first arg (engine)
+    engine=$1
+    shift
+    q=${q#$engine }
+    # Escape spaces for URL
+    q=${q// /+}
+
+    req="http://"
+    case "$engine" in
+        s) req="${req}duckduckgo.com/?q=$q";;
+        g) req="${req}google.com/search?q=$q";;
+        l) req="${req}google.com/search?q=$q&btnI=";;
+        w) req="${req}en.wikipedia.org/w/index.php?title=Special:Search&search=$q&go=Go";;
+        d) req="${req}dictionary.reference.com/browse/$q";;
+        m) req="${req}morfix.co.il/$q";;
+        h) req="${req}morfix.co.il/$q"; rtl=yes;;
+        *) $0 l $engine $@; exit 0;;
+    esac
+
+    if [ "$dump" ]; then
+        if [ "$rtl" ]; then
+            w3m -dump "$req" | rev | more
+        else
+            w3m -dump "$req" | more
+        fi
+    else
+        if [ "$rtl" ]; then
+            vi "+W3m $req" "+set nonumber" "+map q <Esc>:qa!<CR>" "+silent Heb"
+        else
+            w3m "$req"
+        fi
+    fi
+else
+    while read cmd; do
+        $0 $cmd -
+    done;
+fi
+exit 0

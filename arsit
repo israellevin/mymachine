@@ -1,17 +1,6 @@
 #!/bin/bash
 
 chrootdir=chroot
-overlaydir=overlay
-targetdir=/tmp
-mirror=http://debian.co.il/debian
-packages=linux-image-686-pae
-packages="$packages bash-completion bsdmainutils git mc moreutils tmux vim"
-packages="$packages ca-certificates curl dhcpcd iproute netbase openssh-server sshfs w3m wget"
-packages="$packages alsa-base alsa-utils mpc mpd mplayer2"
-packages="$packages libxcb-icccm4 libxcb-keysyms1 xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
-packages="$packages clipit libwebkitgtk-3.0-0 redshift rxvt-unicode-256color sux unclutter vim-gtk"
-packages="$packages libmpeg2-4 xautomation xbmc xul-ext-adblock-plus xul-ext-firebug"
-
 if ! pushd "$chrootdir"; then
     echo creating tmpfs
     mkdir "$chrootdir"
@@ -19,16 +8,31 @@ if ! pushd "$chrootdir"; then
     pushd "$chrootdir"
 fi
 
+mirror=http://debian.co.il/debian
 if [ ! -f sbin/init ]; then
     echo debootstrapping
     debootstrap --variant=minbase sid . "$mirror"
 fi
 
-if (read -n 1 -p 'install packages, configure and overlay? (y/N) ' q; echo; [ y = "$q" ]); then
+sources[0]="$mirror sid main contrib non-free"
+packages=linux-image-686-pae
+packages="$packages bash-completion bc bsdmainutils git mc moreutils tmux unzip unrar vim"
+packages="$packages ca-certificates curl dhcpcd iproute netbase openssh-server sshfs w3m wget"
+packages="$packages alsa-base alsa-utils mpc mpd mplayer2"
+packages="$packages libxcb-icccm4 libxcb-keysyms1 xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
+packages="$packages clipit feh imagemagick python-imaging redshift rxvt-unicode-256color sux unclutter vim-gtk"
+packages="$packages conkeror xautomation xul-ext-adblock-plus xul-ext-firebug"
+if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
     mkdir -p etc/apt
-    echo "deb $mirror sid main contrib non-free" > etc/apt/sources.list
+    > etc/apt/sources.list
+    for src in "${sources[@]}"; do
+        echo "deb $src" >> etc/apt/sources.list
+    done
     chroot . apt-get update
     chroot . apt-get --no-install-recommends --force-yes -y install $packages
+fi
+
+if (read -n 1 -p 'Configure? (y/N) ' q; echo; [ y = "$q" ]); then
     chroot . dpkg-reconfigure tzdata
     chroot . adduser i
     chroot . addgroup wheel
@@ -38,28 +42,16 @@ if (read -n 1 -p 'install packages, configure and overlay? (y/N) ' q; echo; [ y 
     chroot . adduser i disk
     chroot . adduser i fuse
     chroot . passwd -d root
-    rsync -av "../$overlaydir/" .
 fi
 
-if (read -n 1 -p 'arsawat? (y/N) ' q; echo; [ y = "$q" ]); then
-    packages="nvidia-kernel-686-pae nvidia-vdpau-driver sensord xserver-xorg-video-nvidia"
-    chroot . apt-get --no-install-recommends --force-yes -y install $packages
-    rsync -av ../arsawat/ .
-elif (read -n 1 -p 'ludi? (y/N) ' q; echo; [ y = "$q" ]); then
-    packages="nvidia-kernel-686-pae nvidia-vdpau-driver xserver-xorg-video-nvidia"
-    chroot . apt-get -y purge $packages
-    chroot . apt-get -y autoremove
-    packages="acpi firmware-iwlwifi hdparm iw wireless-tools"
-    packages="$packages libgl1-mesa-dri libgl1-mesa-glx xserver-xorg-input-synaptics xserver-xorg-video-intel"
-    chroot . apt-get --force-yes -y install $packages
-    echo deb http://debian.tu-bs.de/project/aptosid/debian/ sid main fix.main >> etc/apt/sources.list
-    echo deb http://www.deb-multimedia.org sid main non-free >> etc/apt/sources.list
-    chroot . apt-get update
-    chroot . apt-get --force-yes -y install ceni libdvdcss2
-    rsync -av ../arsawat/ .
-    rsync -av ../ludi/ .
+overlaydirs[0]=overlay
+if (read -n 1 -p 'Overlay? (y/N) ' q; echo; [ y = "$q" ]); then
+    for dir in "${overlaydirs[@]}"; do
+        rsync -av "../$dir/" .
+    done
 fi
 
+targetdir=/tmp
 gettarget(){
     if [ -d "$tr" ]; then
         read -n 1 -p "copy to $tr? (Y/n) " q; echo; echo
@@ -77,7 +69,7 @@ if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
     mkdir dev sys run proc
     mkdir -m 777 tmp mnt
     gettarget
-    tar cf - . | pv -s $(du -sb . | awk '{print $1}') > "$tr/ars.tar"
+    tar cf - . | pv -s "$(du -sb . | awk '{print $1}')" > "$tr/ars.tar"
     mv ../boot .
 fi
 
@@ -94,8 +86,8 @@ if (read -n 1 -p 'copy initrd? (y/N) ' q; echo; [ y = "$q" ]); then
     cp -a ../lib/modules lib/.
     mkdir 'mnt'
     cp ../../local scripts/.
-    cp `which pv` 'bin/.'
-    cp `which tar` 'bin/.'
+    cp "$(which pv)" 'bin/.'
+    cp "$(which tar)" 'bin/.'
     gettarget
     find . -mount | cpio -o -H newc > "$tr/arsinitrd"
     popd
