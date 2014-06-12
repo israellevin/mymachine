@@ -32,3 +32,4 @@ fi
 deluge-console "info --sort-reverse=progress $@"
 deluge-console 'config max_upload_speed'
 deluge-console 'config max_download_speed'
+exit 0

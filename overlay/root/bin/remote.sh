@@ -1,6 +1,6 @@
 #!/bin/dash
 export DISPLAY=':0.0'
-mp=$(xwininfo -name mplayer2 | grep 'Window id' | cut -d ' ' -f 4)
+mp=$(xwininfo -name mpv | grep 'Window id' | cut -d ' ' -f 4)
 if [ "$mp" ]; then
     case $1 in
         'pause') xdotool key --window "$mp" space;;
@@ -27,3 +27,4 @@ else
         'voldown') vol '5%-';;
     esac
 fi
+exit 0

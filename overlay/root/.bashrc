@@ -4,20 +4,23 @@
 # Truisms
 export PATH="$HOME/bin:$PATH"
 export LANG=C.UTF-8
-#export TERM=screen-256color
 
 # Multiplex
-[ ! "$TMUX" ] &&
+if [ "$SSH_CONNECTION" ] && [ 0 -ne "$UID" ]; then
+    su -c 'tmux list-ses' && su || su -
+    exit 0
+elif [ ! "$TMUX" ]; then
     ([ "$SSH_CONNECTION" ] && tmux -2 attach || tmux -2 new) &&
     [ ! -e /tmp/dontquit ] && exit 0
+fi
 
 # Make nice
-#renice -n -10 -p "$$" > /dev/null
-#ionice -c 2 -n 0 -p "$$" > /dev/null
+renice -n -10 -p "$$" > /dev/null
+ionice -c 2 -n 0 -p "$$" > /dev/null
 
 # Create a new cgroup for this session
-#mkdir -pm 0700 /sys/fs/cgroup/cpu/user/$$
-#echo $$ > /sys/fs/cgroup/cpu/user/$$/tasks
+mkdir -pm 0700 /sys/fs/cgroup/cpu/user/$$
+echo $$ > /sys/fs/cgroup/cpu/user/$$/tasks
 
 # Shell options
 shopt -s cdspell
@@ -85,12 +88,11 @@ xs() {
 
 # Completion
 source /etc/bash_completion
-complete -W "$(echo $(grep '^ssh ' "$HOME/.bash_history" | sort -u | sed 's/^ssh //'))" ssh
+complete -W "$(echo $(grep -a '^ssh ' "$HOME/.bash_history" | sort -u | sed 's/^ssh //'))" ssh
 _fasd_bash_hook_cmd_complete j v mpp
 
 _w(){
-    local opts="re sub suf pre"
-    COMPREPLY=( $( grep -h "^${COMP_WORDS[COMP_CWORD]}" /usr/share/dict/words <(echo -e "showdb") ) )
+    COMPREPLY=($(grep -h "^${COMP_WORDS[COMP_CWORD]}" /usr/share/dict/words))
     return 0
 }
 complete -F _w w
@@ -119,12 +121,11 @@ alias vs='vim -c "set spell | set buftype=nofile"'
 # Media
 alias d0='DISPLAY=":0.0"'
 alias d1='DISPLAY="localhost:10.0"'
-alias mp='mplayer'
-alias mpp='mplayer'
-alias mpl='mplayer -lavdopts lowres=1:fast:skiploopfilter=all'
-alias mpy='mplayer -vf yadif'
+alias mpp='mpv'
+alias mpl='mpv -lavdopts lowres=1:fast:skiploopfilter=all'
+alias mpy='mpv -vf yadif'
 alias feh='feh -ZF'
-mplen() { wf `mplayer -vo dummy -ao dummy -identify "$1" 2>/dev/null | grep ID_LENGTH | cut -c 11-` seconds to minutes; }
+mplen() { wf `mpv -vo dummy -ao dummy -identify "$1" 2>/dev/null | grep ID_LENGTH | cut -c 11-` seconds to minutes; }
 
 # Web
 alias webshare='python -c "import SimpleHTTPServer;SimpleHTTPServer.test()"'
@@ -132,6 +133,21 @@ alias wclip='curl -F "sprunge=<-" http://sprunge.us | xclip -f'
 wf() { w3m "http://m.wolframalpha.com/input/?i=$(perl -MURI::Escape -e "print uri_escape(\"$*\");")" -dump 2>/dev/null | grep -A 2 'Result:' | tail -n 1; }
 wf() { wget -O - "http://api.wolframalpha.com/v1/query?input=$*&appid=LAWJG2-J2GVW6WV9Q" 2>/dev/null | grep plaintext | sed -n 2,4p | cut -d '>' -f2 | cut -d '<' -f1; }
 wff() { while read r; do wf $r; done; }
+trans() {
+    local from="$1"
+    local to="$2"
+    shift 2
+    q="$*"
+    q=${q// /+}
+    curl -s -A "Mozilla/5.0" "http://translate.google.com.br/translate_a/t?client=t&text=$q&sl=$from&tl=$to" | awk -F'"' '{print $2}'
+}
+say() {
+    local lang="$1"
+    shift
+    q="$*"
+    q=${q// /+}
+    mpv "http://translate.google.com/translate_tts?ie=UTF-8&tl=$lang&q=$q"
+}
 
 # General aliases and functions
 alias x='TMUX="" startx &'
@@ -166,7 +182,7 @@ LESS_TERMCAP_us=$'\e[32m'
 LESS_TERMCAP_ue=$'\e[0m'
 LESS_TERMCAP_md=$'\e[1;31m'
 LESS_TERMCAP_me=$'\e[0m'
-MANPAGER='sh -c "col -b | vim -c \"set buftype=nofile ft=man ts=8 nolist nonumber\" -c \"map q <Esc>:qa!<CR>\" -c \"normal M\" -"'
+export MANPAGER='sh -c "col -b | vim -c \"set buftype=nofile ft=man ts=8 nolist nonumber norelativenumber\" -c \"map q <Esc>:qa!<CR>\" -c \"normal M\" -"'
 
 # Preprompt
 PROMPT_COMMAND="$PROMPT_COMMAND; t=yes"

@@ -6,3 +6,4 @@ curl -e "http://www.google.com" -A "Mozilla/4.0" -skL "http://google.com/search?
         print "  " $0
     }
 ' | p
+exit 0

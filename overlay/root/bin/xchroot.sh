@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/dash
 
 [ "$1" ] && t="$1" || t='.'
 shift
@@ -21,3 +21,5 @@ umount "$t/dev/pts"
 umount "$t/proc"
 umount "$t/sys"
 umount "$t/dev"
+
+exit 0

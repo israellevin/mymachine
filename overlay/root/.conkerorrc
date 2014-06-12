@@ -1,8 +1,12 @@
+// General settings
 homepage = 'about:blank';
+can_kill_last_buffer = false;
 url_completion_use_history = true;
 isearch_keep_selection = true;
-can_kill_last_buffer = false;
+editor_shell_command = 'urxvt -e vi ';
+view_source_use_external_editor = true;
 
+// Jumps
 webjumps.l = webjumps.lucky;
 webjumps.w = webjumps.wikipedia;
 read_url_handler_list = [
@@ -20,18 +24,21 @@ read_url_handler_list = [
 ];
 function possibly_valid_url(str){return /^\s*[^\/\s]*(\/|\s*$)/.test(str) && /[:\/\.]/.test(str);}
 
+// Session
+require('session.js');
+session_auto_save_auto_load = 'prompt';
 var undos = [];
 var kill_buffer_orig = kill_buffer_orig || kill_buffer;
 kill_buffer = function(b, f){
     b.display_uri_string && undos.push(b.display_uri_string);
     kill_buffer_orig(b, f);
 }
-interactive('undo_close', 'Loads url from a previously killed buffer', function undo_close(b){
+interactive('undo_close', 'Loads url from a previously killed buffer', function undo_close(I){
     if(0 === undos.length){
-        b.window.minibuffer.message('No killed buffers');
+        I.window.minibuffer.message('No killed buffers');
     }else{
         load_url_in_new_buffer(
-            yield b.minibuffer.read(
+            yield I.minibuffer.read(
                 $prompt = 'Restore killed url:',
                 $completer = all_word_completer($completions = undos),
                 $default_completion = undos[undos.length - 1],
@@ -43,6 +50,67 @@ interactive('undo_close', 'Loads url from a previously killed buffer', function 
         );
     }
 });
+
+// Go modal
+var insertmode = true;
+function modal(e){
+    if('keydown' === e.type && 27 === e.which) insertmode = false;
+    else if('keyup' === e.type && 73 === e.which) insertmode = true;
+    if(false === insertmode) e.stopPropagation();
+}
+add_hook('create_buffer_late_hook', function(I){
+    I.browser.addEventListener('keydown', modal, true);
+    I.browser.addEventListener('keyup', modal, true);
+    I.browser.addEventListener('keypress', modal, true);
+});
+require('block-content-focus-change.js');
+
+// Keys
+var maps = [default_global_keymap, content_buffer_normal_keymap];
+for(var i = 0; i < maps.length; i++){
+    define_key(maps[i], 'i', 'quote-mode');
+    define_key(maps[i], 'I', 'block-content-focus-change-mode');
+    define_key(maps[i], 'j', 'cmd_lineNext');
+    define_key(maps[i], 'k', 'cmd_linePrevious');
+    define_key(maps[i], 'J', 'buffer-next');
+    define_key(maps[i], 'K', 'buffer-previous');
+    define_key(maps[i], 'H', 'back');
+    define_key(maps[i], 'L', 'forward');
+    define_key(maps[i], 'O', 'find-url-new-buffer');
+    define_key(maps[i], 'G', 'cmd_moveTop');
+    define_key(maps[i], 'F', 'follow-new-buffer-background');
+}
+
+// Block plugins
+require('content-policy.js');
+var enableplugins = false;
+interactive('toggle-plugins', 'toggle plugins', function(I){enableplugins = !enableplugins;});
+function block_plugins (content_type, content_location){
+    var Y = content_policy_accept, N = content_policy_reject;
+    if(true === enableplugins) return Y;
+    return N;
+}
+content_policy_bytype_table.object = block_plugins;
+add_hook('content_policy_hook', content_policy_bytype);
+
+// Good looks
+theme_load('gesso');
+register_user_stylesheet(make_css_data_uri(['.mode-line {background-color:white;}'], $namespace = XUL_NS));
+add_hook('create_buffer_late_hook', function(I){
+    browser_zoom_set(I, true, 150);
+});
+var minibuffer_autohide_timer = null;
+var hide_minibuffer = function(window){window.minibuffer.element.collapsed = true;}
+var show_minibuffer = function(window){window.minibuffer.element.collapsed = false;}
+add_hook('window_initialize_hook', hide_minibuffer);
+var minibuffer_restore = minibuffer_restore || minibuffer.prototype._restore_state;
+minibuffer.prototype._restore_state = function(){
+    if(this.current_state) show_minibuffer(this.window);
+    else hide_minibuffer(this.window);
+    minibuffer_restore.call(this);
+};
+add_hook('mode_line_hook', mode_line_adder(buffer_count_widget), true);
+add_hook('mode_line_hook', mode_line_adder(loading_count_widget), true);
 
 hints_auto_exit_delay = 100;
 active_hint_background_color = '#bbffdd';
@@ -61,39 +129,54 @@ register_user_stylesheet(
         '}'
     )
 );
-add_hook('create_buffer_late_hook', function(b){browser_zoom_set(b, true, 150);});
-
-var minibuffer_autohide_timer = null;
-var hide_minibuffer = function(window){window.minibuffer.element.collapsed = true;}
-var show_minibuffer = function(window){window.minibuffer.element.collapsed = false;}
-add_hook('window_initialize_hook', hide_minibuffer);
-var minibuffer_restore = minibuffer_restore || minibuffer.prototype._restore_state;
-minibuffer.prototype._restore_state = function(){
-    if(this.current_state) show_minibuffer(this.window);
-    else hide_minibuffer(this.window);
-    minibuffer_restore.call(this);
-};
 
 xkcd_add_title = true;
+remove_hook('download_added_hook', open_download_buffer_automatically);
 
-require('session.js');
-session_auto_save_auto_load = 'prompt';
-
-interactive('focus_input', 'Focuses the first input in the page', function focus_input(b){
-    alert(1);
+// Dev
+interactive('toggle-agent', 'pretend to be firefox', function(I){
+    session_pref(
+        'general.useragent.compatMode.firefox',
+        ! get_pref('general.useragent.compatMode.firefox')
+    );
 });
 
-editor_shell_command = view_source_function = 'urxvt -e vi ';
+var user_agents = {
+    'conkeror': 'Mozilla/5.0 (X11; Linux i686; rv:29.0) Gecko/20100101 conkeror/1.0pre (Debian-1.0~~pre+git140428-1)',
+    'firefox': 'Mozilla/5.0 (X11; Linux i686; rv:29.0) Gecko/20100101 Firefox/29.0 Iceweasel/29.0.1',
+    'chromium': 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.114 Safari/537.36',
+    'android': 'Mozilla/5.0 (Linux; U; Android 2.2; en-us; Nexus One Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1'
+};
+var agent_completer = prefix_completer($completions = Object.keys(user_agents));
+interactive('user-agent', 'Pick an agent',
+    function(I){
+        var ua = (yield I.window.minibuffer.read(
+            $prompt = 'Agent:',
+            $completer = agent_completer));
+        set_user_agent(user_agents[ua]);
+    }
+);
 
-define_key(content_buffer_normal_keymap, 'j', 'cmd_lineNext')
-define_key(content_buffer_normal_keymap, 'k', 'cmd_linePrevious')
-define_key(content_buffer_normal_keymap, 'G', 'cmd_moveTop')
-define_key(content_buffer_normal_keymap, 'd', 'kill-current-buffer')
-define_key(content_buffer_normal_keymap, 'J', 'buffer-next')
-define_key(content_buffer_normal_keymap, 'K', 'buffer-previous')
-define_key(content_buffer_normal_keymap, 'H', 'back')
-define_key(content_buffer_normal_keymap, 'L', 'forward')
-define_key(content_buffer_normal_keymap, 'F', 'follow-new-buffer-background')
-define_key(content_buffer_normal_keymap, 'O', 'find-url-new-buffer')
-define_key(content_buffer_normal_keymap, 'u', 'undo_close')
-define_key(content_buffer_normal_keymap, 'i', 'focus_input')
+interactive('firebug', 'open firebug lite', function(I){
+    var doc = I.buffer.document;
+    var script = doc.createElement('script');
+    script.setAttribute('type', 'text/javascript');
+    script.setAttribute('src', 'http://getfirebug.com/releases/lite/1.2/firebug-lite-compressed.js');
+    script.setAttribute('onload', 'firebug.init();');
+    doc.body.appendChild(script);
+});
+
+interactive('jquery', 'run a jquery command', function(I){
+    var doc = I.buffer.document;
+    var script_el = doc.createElementNS(XHTML_NS, 'script');
+    script_el.setAttribute('language', 'javascript');
+    script_el.setAttribute('type', 'text/javascript');
+    script_el.setAttribute('src', 'http://code.jquery.com/jquery-latest.min.js');
+    doc.body.appendChild(script_el);
+
+    script_el = doc.createElementNS(XHTML_NS, 'script');
+    script_el.textContent = yield I.minibuffer.read($prompt = 'jq: ', $history = 'jquery-here');
+    doc.body.appendChild(script_el);
+});
+
+// vim:filetype=javascript

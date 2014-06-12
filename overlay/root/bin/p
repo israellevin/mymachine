@@ -24,7 +24,7 @@ while read l && [ $i -lt 50 ]; do
     lines="$lines\n$l"
 done
 # append them to what's left in the pipe and push it to the proper pager
-# (can't I cat lines and stdin)
+# (can't I cat lines and stdin?)
 (echo $lines && while read l; do echo $l; done) |
 # if there was anything left in the pipe push it to vim
 (if [ "$l" ]; then
