@@ -1,8 +1,0 @@
-#!/bin/dash
-if [ "$1" ]; then
-    amixer -c 0 sset Master "$1%"
-else
-    amixer -c 0 sset Master toggle
-fi
-
-xsetroot -name "$(status.sh)"

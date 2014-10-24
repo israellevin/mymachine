@@ -1,4 +1,5 @@
 # Write your default config options here!
-softvol=no
+fs=yes
+zoom=yes
 ao=alsa,
-
+mixer-channel=Master
