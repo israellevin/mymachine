@@ -59,4 +59,4 @@ session    optional   pam_mail.so nopen
 @include common-account
 @include common-session
 
-
+session optional pam_xauth.so

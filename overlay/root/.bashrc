@@ -14,14 +14,6 @@ elif [ ! "$TMUX" ]; then
     [ ! -e /tmp/dontquit ] && exit 0
 fi
 
-# Make nice
-renice -n -10 -p "$$" > /dev/null
-ionice -c 2 -n 0 -p "$$" > /dev/null
-
-# Create a new cgroup for this session
-mkdir -pm 0700 /sys/fs/cgroup/cpu/user/$$
-echo $$ > /sys/fs/cgroup/cpu/user/$$/tasks
-
 # Shell options
 shopt -s cdspell
 shopt -s dotglob

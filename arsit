@@ -9,6 +9,7 @@ if ! pushd "$chrootdir"; then
 fi
 
 mirror=http://ftp.debian.org/debian
+mirror=http://debian.co.il/debian
 if [ ! -f sbin/init ]; then
     echo debootstrapping
     debootstrap --variant=minbase sid . "$mirror"
@@ -18,13 +19,14 @@ sources[0]="$mirror sid main contrib non-free"
 #sources[1]="$mirror stable main contrib non-free"
 #sources[2]="http://www.deb-multimedia.org stable main non-free"
 packages=linux-image-686-pae
-packages="$packages bash-completion bc bsdmainutils git mc moreutils poppler-utils tmux unzip unrar vim"
-packages="$packages aria2 ca-certificates curl dhcpcd iproute netbase openssh-server sshfs w3m wget"
+packages="$packages bash-completion bc bsdmainutils git mc moreutils poppler-utils psmisc tmux unzip unrar vim"
+packages="$packages aria2 ca-certificates curl iputils-ping iproute netbase openssh-server rsync sshfs w3m wget"
 packages="$packages alsa-base alsa-utils mpc mpd mpv"
-packages="$packages libxcb-icccm4 libxcb-keysyms1 xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
-packages="$packages clipit feh imagemagick python-imaging redshift rxvt-unicode-256color sux unclutter vim-gtk"
-packages="$packages conkeror conkeror-spawn-process-helper xautomation xul-ext-adblock-plus xul-ext-firebug"
-packages="$packages nvidia-kernel-686-pae nvidia-vdpau-driver sensord xbmc xserver-xorg-video-nvidia"
+packages="$packages x11-xserver-utils xautomation xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
+packages="$packages clipit feh imagemagick python-gtk2 python-imaging redshift rxvt-unicode-256color unclutter vim-gtk"
+packages="$packages conkeror conkeror-spawn-process-helper xul-ext-adblock-plus xul-ext-firebug"
+packages="$packages libxcb-keysyms1 libxcb-icccm4 nvidia-kernel-686-pae nvidia-vdpau-driver sensord xbmc xserver-xorg-video-nvidia"
+
 if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
     mkdir -p etc/apt
     > etc/apt/sources.list

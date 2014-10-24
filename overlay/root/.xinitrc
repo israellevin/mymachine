@@ -11,7 +11,4 @@ while true; do
     break
 done &
 
-# capture monsterwm's stdout
-ff='/tmp/monsterwm.fifo'
-[ -p $ff ] || mkfifo -m 600 "$ff"
-monsterwm | tee "$ff"
+monsterwm
