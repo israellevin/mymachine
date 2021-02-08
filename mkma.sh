@@ -1,75 +1,94 @@
 #!/bin/bash
+set -e
+mirror=${1:-http://deb.devuan.org/merged}
+sources=("deb $mirror unstable main")
+# deb http://deb.devuan.org/merged unstable main non-free contrib
+# firmware-iwlwifi
+# deb http://deb.devuan.org/merged stable main non-free contrib
+# deb http://deb.devuan.org/merged stable-security main non-free contrib
+# deb http://deb.devuan.org/merged stable-updates main non-free contrib
+packages=(linux-image-amd64
+bash-completion bc bsdmainutils chafa git less mc moreutils poppler-utils psmisc pv rsync tmux unzip vim
+aria2 ca-certificates curl dhcpcd5 iproute2 iw netbase openssh-server sshfs w3m wget wpasupplicant
+python3 python3-pip python3-venv
+xinit xserver-xorg-input-libinput xserver-xorg-video-vesa
+feh imagemagick mpv parcellite redshift)
+binaries=(dmenu dmenu_run monsterwm st)
+overlaydirs=(overlay)
+user=user
+password=pass
 
-chrootdir=${1:-chroot}
-mirror=${2:-http://ftp.debian.org/debian}
-targetdir=${3:-"$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"}
-
-if ! pushd "$chrootdir"; then
+if ! pushd chroot; then
     echo creating tmpfs
-    mkdir "$chrootdir"
-    mount -t tmpfs -o size=60% none "$chrootdir" || exit 1
-    pushd "$chrootdir"
+    mkdir chroot
+    mount -t tmpfs -o size=60% none chroot|| exit 1
+    pushd chroot
 fi
 
 if [ ! -f sbin/init ]; then
     echo debootstrapping
-    debootstrap --variant=minbase sid . "$mirror"
-    chroot . adduser i
+    debootstrap --variant=minbase unstable . "$mirror"
+    chroot . useradd $user -m
     chroot . addgroup wheel
-    chroot . adduser i wheel
+    chroot . usermod -a -G wheel $user
     chroot . passwd -d root
+    chroot . sh -c "yes $password | passwd $user"
 fi
 
-# You can add more sources.
-sources[0]="$mirror sid main"
-packages=linux-image-686-pae
-packages="$packages bash-completion bc bsdmainutils git mc moreutils poppler-utils psmisc sensord tmux unzip vim"
-packages="$packages aria2 ca-certificates curl openssh-server sshfs w3m wget"
-packages="$packages dhcpcd5 netbase wireless-tools wpasupplicant"
-packages="$packages alsa-base alsa-utils mpc mpd mpv"
-packages="$packages python3 python3-pip python3-venv"
-packages="$packages xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
-packages="$packages x11-xserver-utils xautomation xdotool"
-packages="$packages clipit feh imagemagick python-gtk2 python-imaging redshift rxvt-unicode-256color unclutter vim-gtk"
-packages="$packages libwebkitgtk-3.0-dev xul-ext-adblock-plus xul-ext-firebug"
-if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
-    mkdir -p etc/apt
-    echo 'APT::Get::Install-Recommends "0";' > etc/apt/apt.conf
-    :> etc/apt/sources.list
-    for src in "${sources[@]}"; do
-        echo "deb $src" >> etc/apt/sources.list
-    done
-    chroot . mkdir /fake
-    for bin in initctl invoke-rc.d restart start stop start-stop-daemon service; do
-        chroot . ln -s /bin/true /fake/$bin
-    done
-    chroot . apt-get update
-    PATH=/fake:$PATH chroot . apt-get -y install $packages
-    rm -rf fake
-fi
+echo setting apt
+for src in "${sources[@]}"; do
+    echo "$src"
+done > etc/apt/sources.list
+echo 'APT::Install-Recommends "0";' > etc/apt/apt.conf.d/10no-recommends
+echo 'APT::Install-Suggests "0";' > etc/apt/apt.conf.d/10no-suggests
 
-# You can add more overlay dirs.
-overlaydirs[0]=overlay
-if (read -n 1 -p 'Overlay? (y/N) ' q; echo; [ y = "$q" ]); then
-    for dir in "${overlaydirs[@]}"; do
-        rsync -av "../$dir/" .
-    done
-fi
+echo installing packages
+# Installs should not try to run any services.
+mkdir -p fake
+for bin in initctl invoke-rc.d restart start stop start-stop-daemon service; do
+    ln -fs bin/true fake/$bin
+done
+chroot . apt update
+PATH=/fake:$PATH DEBIAN_FRONTEND=noninteractive chroot . apt -y install "${packages[@]}"
+chroot . apt clean
+rm -rf fake
 
-gettarget(){
-    if [ -d "$tr" ]; then
-        read -n 1 -p "copy to $tr? (Y/n) " q; echo; echo
-        [ n = "$q" ] || return 0
-        tr=''
-    else
-        read -p "destination ($targetdir): " tr && [ "$tr" ] || tr="$targetdir"
-    fi
-    gettarget
-}
+echo copy binaries
+for binary in "${binaries[@]}"; do
+    binpath="$(which "$binary")"
+    cp "$binpath" "./$binpath"
+done
 
-if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
-    gettarget
-    tar --one-file-system -cf - . | pv -s "$(du -sb . | awk '{print $1}')" > "$tr/mymachine.tar"
-fi
+echo copy overlays
+for dir in "${overlaydirs[@]}"; do
+    rsync -av "../$dir/" .
+done
 
-exit 0
+# Cleanup before creating archive.
+rm -rf --one-file-system dev sys run proc tmp mnt
+mkdir dev sys run proc
+mkdir -m 777 tmp mnt
+echo creating archive
+mkdir -p ../build
+tar --one-file-system --exclude=./boot -cf - . | pv -s "$(du -sb . | awk '{print $1}')" > ../build/mymachine.tar
+
+echo copying kernel
+for kernel in boot/vmlinuz*; do
+    cp "$kernel" ../build/"$(basename $kernel)"-mymachine
+done
+
+echo patching and copying initrd
+mkdir initrd
+pushd initrd
+for initrd in ../boot/initrd*; do
+    cat "$initrd" | gunzip | cpio -i
+    rm -rf --one-file-system lib/modules
+    cp -a ../lib/modules lib/.
+    cp "$(which pv)" 'bin/.'
+    cp "$(which tar)" 'bin/.'
+    mkdir 'mnt'
+    cp ../../ ./initrd.scripts.local scripts/local
+    find . -mount | cpio -o -H newc > ../../build/"$(basename "$initrd")"-mymachine
+done
+popd
+rm -rf --one-file-system initrd
