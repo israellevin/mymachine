@@ -182,14 +182,14 @@ local_mount_root()
 	# HACK:
 	# Instead of mounting the device as root, mount temporarily extract an archive into a tmpfs that will be our root.
 	# shellcheck disable=SC2086
-	mkdir /mnt
+	mkdir -p /mnt
 	if ! mount ${roflag} ${FSTYPE:+-t "${FSTYPE}"} ${ROOTFLAGS} "${ROOT}" /mnt"; then
 		panic "Failed to mount ${ROOT} as  file system."
 	fi
 	echo "deploying rymachine from $FSTYPE in $ROOT"
 	mount -t tmpfs -o size=75% none ${rootmnt}
 	cd ${rootmnt}
-	pv /mnt/syslinux/mymachine.tar | tar x
+	pv /mnt/boot/mymachine.tar | tar x
 	umount /mnt
 }
 

@@ -69,16 +69,15 @@ rm -rf --one-file-system dev sys run proc tmp mnt
 mkdir dev sys run proc
 mkdir -m 777 tmp mnt
 echo creating archive
-mkdir -p ../build
-tar --one-file-system --exclude=./boot -cf - . | pv -s "$(du -sb . | awk '{print $1}')" > ../build/mymachine.tar
+tar --one-file-system --exclude=./boot -cf - . | pv -s "$(du -sb . | awk '{print $1}')" > /boot/mymachine.tar
 
 echo copying kernel
 for kernel in boot/vmlinuz*; do
-    cp "$kernel" ../build/"$(basename $kernel)"-mymachine
+    cp "$kernel" /boot/"$(basename $kernel)"-mymachine
 done
 
 echo patching and copying initrd
-mkdir initrd
+mkdir -p initrd
 pushd initrd
 for initrd in ../boot/initrd*; do
     cat "$initrd" | gunzip | cpio -i
@@ -86,9 +85,8 @@ for initrd in ../boot/initrd*; do
     cp -a ../lib/modules lib/.
     cp "$(which pv)" 'bin/.'
     cp "$(which tar)" 'bin/.'
-    mkdir 'mnt'
-    cp ../../ ./initrd.scripts.local scripts/local
-    find . -mount | cpio -o -H newc > ../../build/"$(basename "$initrd")"-mymachine
+    cp ../../initrd.scripts.local.hack scripts/local
+    find . -mount | cpio -o -H newc > /boot/"$(basename "$initrd")"-mymachine
 done
 popd
 rm -rf --one-file-system initrd
