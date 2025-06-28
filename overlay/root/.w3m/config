@@ -1,6 +1,0 @@
-anchor_color yellow
-form_color cyan
-mark_color red
-image_color magenta
-extbrowser sh -c 'echo "$0" | /usr/bin/xclip'
-extbrowser2 sh -c 'echo "$0" | /tmp/w3mcopy'

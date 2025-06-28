@@ -1,75 +1,109 @@
 #!/bin/bash
 
-chrootdir=${1:-chroot}
-mirror=${2:-http://ftp.debian.org/debian}
-targetdir=${3:-"$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"}
+mkchroot() {
+    local packages="$(echo "$packages" | tr ' ' ',')"
+    debootstrap --variant=minbase --components=main,contrib,non-free,firmware --include="$packages" sid .
 
-if ! pushd "$chrootdir"; then
-    echo creating tmpfs
-    mkdir "$chrootdir"
-    mount -t tmpfs -o size=60% none "$chrootdir" || exit 1
-    pushd "$chrootdir"
-fi
+    mkdir -p ./lib/modules
+    cp -a /lib/modules/"$(uname -r)" ./lib/modules/
 
-if [ ! -f sbin/init ]; then
-    echo debootstrapping
-    debootstrap --variant=minbase sid . "$mirror"
-    chroot . adduser i
-    chroot . addgroup wheel
-    chroot . adduser i wheel
-    chroot . passwd -d root
-fi
-
-# You can add more sources.
-sources[0]="$mirror sid main"
-packages=linux-image-686-pae
-packages="$packages bash-completion bc bsdmainutils git mc moreutils poppler-utils psmisc sensord tmux unzip vim"
-packages="$packages aria2 ca-certificates curl openssh-server sshfs w3m wget"
-packages="$packages dhcpcd5 netbase wireless-tools wpasupplicant"
-packages="$packages alsa-base alsa-utils mpc mpd mpv"
-packages="$packages python3 python3-pip python3-venv"
-packages="$packages xinit xserver-xorg xserver-xorg-input-kbd xserver-xorg-video-vesa"
-packages="$packages x11-xserver-utils xautomation xdotool"
-packages="$packages clipit feh imagemagick python-gtk2 python-imaging redshift rxvt-unicode-256color unclutter vim-gtk"
-packages="$packages libwebkitgtk-3.0-dev xul-ext-adblock-plus xul-ext-firebug"
-if (read -n 1 -p 'install packages? (y/N) ' q; echo; [ y = "$q" ]); then
-    mkdir -p etc/apt
-    echo 'APT::Get::Install-Recommends "0";' > etc/apt/apt.conf
-    :> etc/apt/sources.list
-    for src in "${sources[@]}"; do
-        echo "deb $src" >> etc/apt/sources.list
-    done
-    chroot . mkdir /fake
-    for bin in initctl invoke-rc.d restart start stop start-stop-daemon service; do
-        chroot . ln -s /bin/true /fake/$bin
-    done
-    chroot . apt-get update
-    PATH=/fake:$PATH chroot . apt-get -y install $packages
-    rm -rf fake
-fi
-
-# You can add more overlay dirs.
-overlaydirs[0]=overlay
-if (read -n 1 -p 'Overlay? (y/N) ' q; echo; [ y = "$q" ]); then
-    for dir in "${overlaydirs[@]}"; do
-        rsync -av "../$dir/" .
-    done
-fi
-
-gettarget(){
-    if [ -d "$tr" ]; then
-        read -n 1 -p "copy to $tr? (Y/n) " q; echo; echo
-        [ n = "$q" ] || return 0
-        tr=''
-    else
-        read -p "destination ($targetdir): " tr && [ "$tr" ] || tr="$targetdir"
-    fi
-    gettarget
+    mkdir -p ./etc/apt
+    cat > ./etc/apt/apt.conf <<EOF
+APT::Install-Recommends "0";
+APT::Install-Suggests "0";
+EOF
 }
 
-if (read -n 1 -p 'copy tar? (y/N) ' q; echo; [ y = "$q" ]); then
-    gettarget
-    tar --one-file-system -cf - . | pv -s "$(du -sb . | awk '{print $1}')" > "$tr/mymachine.tar"
-fi
+install_packages() {
+    local packages="$1"
 
-exit 0
+    mkdir ./fake
+    for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
+        ln -s ./bin/true ./fake/$binary
+    done
+
+    chroot . <<EOF
+export PATH="/fake:\$PATH"
+apt-get update
+apt-get -y install $packages
+apt clean
+EOF
+
+    rm -rf ./fake
+}
+
+configure_user() {
+    chroot . <<EOF
+groupadd wheel
+useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel i
+passwd -d root
+EOF
+}
+
+mkinitramfs() {
+    mkdir -p ./{proc,sys,dev,tmp,run}
+    chmod 1777 ./tmp
+    mknod -m 622 ./dev/console c 5 1 2>/dev/null || true
+    mknod -m 666 ./dev/null c 1 3 2>/dev/null || true
+
+    cat <<EOF > ./init
+#!/bin/sh
+echo Running custom init...
+
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs devtmpfs /dev
+
+exec /sbin/init
+EOF
+
+    chmod +x ./init
+    find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio --null -o -H newc
+}
+
+bootinitramfs() {
+    local kernel_image="$1"
+    local initramfs_image="$2"
+    local ramdisk_size="${3:-4096}"
+
+    if [ ! -f "$kernel_image" ]; then
+        echo "Error: Kernel image $kernel_image not found."
+        exit 1
+    fi
+
+    if [ ! -f "$initramfs_image" ]; then
+        echo "Error: Initramfs image $initramfs_image not found."
+        exit 1
+    fi
+
+    qemu-system-x86_64 -m "$ramdisk_size" \
+        -kernel "$kernel_image" \
+        -initrd "$initramfs_image" \
+        -append "console=tty root=/dev/ram0 init=/init" \
+        -netdev user,id=mynet0 -device e1000,netdev=mynet0 \
+        -enable-kvm
+}
+
+main() {
+    local output_dir="$PWD"
+    local chroot_dir="$1"
+    local packages="${2:-\
+systemd-sysv \
+bash bash-completion bc bsdextrautils bsdutils coreutils git kmod locales mc moreutils psmisc tmux unzip udev vim \
+aria2 ca-certificates curl dhcpcd5 iputils-ping iproute2 iw netbase openssh-server w3m wget wpasupplicant \
+sway}"
+
+    [ "$chroot_dir" ] && cd "$chroot_dir" || {
+        echo "Error: Could not change to directory '$chroot_dir'."
+        exit 1
+    }
+
+    [ -f ./sbin/init ] || mkchroot "$packages"
+    install_packages "$packages"
+    configure_user
+    mkinitramfs > "$output_dir/initramfs.img"
+    cd "$output_dir"
+    bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img 4096
+}
+
+main "$@"
