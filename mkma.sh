@@ -15,29 +15,36 @@ EOF
 }
 
 install_packages() {
-    local packages="$1"
+    local packages="locales $1"
 
     mkdir ./fake
     for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
         ln -s ./bin/true ./fake/$binary
     done
-
     chroot . <<EOF
 export PATH="/fake:\$PATH"
 apt-get update
 apt-get -y install $packages
 apt clean
 EOF
-
     rm -rf ./fake
+
+    echo en_US.UTF-8 UTF-8 >> ./etc/locale.gen
+    chroot . locale-gen || true
 }
 
 configure_user() {
+    echo auth sufficient pam_wheel.so trust >> ./etc/pam.d/su
     chroot . <<EOF
 groupadd wheel
 useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel i
 passwd -d root
+passwd -d i
 EOF
+
+    chroot . su -c '
+        git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
+        ~/src/dotfiles/install.sh' i
 }
 
 mkinitramfs() {
@@ -79,7 +86,7 @@ bootinitramfs() {
     qemu-system-x86_64 -m "$ramdisk_size" \
         -kernel "$kernel_image" \
         -initrd "$initramfs_image" \
-        -append "console=tty root=/dev/ram0 init=/init" \
+        -append "console=tty root=/dev/ram0 init=/sbin/init" \
         -netdev user,id=mynet0 -device e1000,netdev=mynet0 \
         -enable-kvm
 }
