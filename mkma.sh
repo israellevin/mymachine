@@ -1,50 +1,53 @@
 #!/bin/bash
 
 mkchroot() {
-    local packages="$(echo "$packages" | tr ' ' ',')"
+    local packages="$(echo "$1" | tr ' ' ',')"
     debootstrap --variant=minbase --components=main,contrib,non-free,firmware --include="$packages" sid .
 
     mkdir -p ./lib/modules
     cp -a /lib/modules/"$(uname -r)" ./lib/modules/
+}
+
+mkapt() {
+    local packages="$1"
+
+    mkdir ./fake
+    for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
+        ln -s ./bin/true ./fake/$binary
+    done
 
     mkdir -p ./etc/apt
     cat > ./etc/apt/apt.conf <<EOF
 APT::Install-Recommends "0";
 APT::Install-Suggests "0";
 EOF
-}
 
-install_packages() {
-    local packages="locales $1"
-
-    mkdir ./fake
-    for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
-        ln -s ./bin/true ./fake/$binary
-    done
     chroot . <<EOF
 export PATH="/fake:\$PATH"
+export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get -y install $packages
 apt clean
 EOF
-    rm -rf ./fake
 
-    echo en_US.UTF-8 UTF-8 >> ./etc/locale.gen
-    chroot . locale-gen || true
+    rm -rf ./fake
 }
 
-configure_user() {
+mkuser() {
     echo auth sufficient pam_wheel.so trust >> ./etc/pam.d/su
+    if [ -w ./etc/locale.gen ]; then
+        echo "en_US.UTF-8 UTF-8" > ./etc/locale.gen
+        chroot . locale-gen || true
+    fi
     chroot . <<EOF
 groupadd wheel
 useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel i
 passwd -d root
 passwd -d i
+su -c '
+    git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
+    ~/src/dotfiles/install.sh' i
 EOF
-
-    chroot . su -c '
-        git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
-        ~/src/dotfiles/install.sh' i
 }
 
 mkinitramfs() {
@@ -53,15 +56,26 @@ mkinitramfs() {
     mknod -m 622 ./dev/console c 5 1 2>/dev/null || true
     mknod -m 666 ./dev/null c 1 3 2>/dev/null || true
 
-    cat <<EOF > ./init
+    cat <<'EOF' > ./init
 #!/bin/sh
-echo Running custom init...
+echo [init] Starting mkma.sh init script...
 
-mount -t proc proc /proc
-mount -t sysfs sys /sys
-mount -t devtmpfs devtmpfs /dev
+echo [init] Mounting tmpfs for overlay...
+mkdir /overlay
+mount -t tmpfs -o size=8G tmpfs /overlay
 
-exec /sbin/init
+echo [init] Mounting tmpfs for overlay...
+mkdir /overlay/old_root /overlay/new_root /overlay/upper /overlay/work
+date
+cp -a / /overlay/old_root
+date
+
+echo [init] Mounting overlayfs...
+mount -t overlay overlay -o lowerdir=/overlay/old_root,upperdir=/overlay/upper,workdir=/overlay/work /overlay/new_root
+rm -rf /overlay/new_root/overlay
+
+echo [init] Moving to new root...
+exec /usr/lib/klibc/bin/run-init /overlay/new_root /lib/systemd/systemd
 EOF
 
     chmod +x ./init
@@ -86,7 +100,7 @@ bootinitramfs() {
     qemu-system-x86_64 -m "$ramdisk_size" \
         -kernel "$kernel_image" \
         -initrd "$initramfs_image" \
-        -append "console=tty root=/dev/ram0 init=/sbin/init" \
+        -append "console=tty root=/dev/ram0 init=/init" \
         -netdev user,id=mynet0 -device e1000,netdev=mynet0 \
         -enable-kvm
 }
@@ -96,7 +110,7 @@ main() {
     local chroot_dir="$1"
     local packages="${2:-\
 systemd-sysv \
-bash bash-completion bc bsdextrautils bsdutils coreutils git kmod locales mc moreutils psmisc tmux unzip udev vim \
+bash bash-completion bc bsdextrautils bsdutils coreutils git klibc-utils kmod locales mc moreutils psmisc tmux unzip udev vim \
 aria2 ca-certificates curl dhcpcd5 iputils-ping iproute2 iw netbase openssh-server w3m wget wpasupplicant \
 sway}"
 
@@ -106,11 +120,11 @@ sway}"
     }
 
     [ -f ./sbin/init ] || mkchroot "$packages"
-    install_packages "$packages"
-    configure_user
+    mkapt "$packages"
+    mkuser
     mkinitramfs > "$output_dir/initramfs.img"
     cd "$output_dir"
     bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img 4096
 }
 
-main "$@"
+(return 0 2>/dev/null) || main "$@"
