@@ -66,13 +66,11 @@ mount -t tmpfs -o size=8G tmpfs /overlay
 
 echo [init] Mounting tmpfs for overlay...
 mkdir /overlay/old_root /overlay/new_root /overlay/upper /overlay/work
-date
 cp -a / /overlay/old_root
-date
 
 echo [init] Mounting overlayfs...
 mount -t overlay overlay -o lowerdir=/overlay/old_root,upperdir=/overlay/upper,workdir=/overlay/work /overlay/new_root
-rm -rf /overlay/new_root/overlay
+mount --bind /overlay /overlay/new_root/overlay
 
 echo [init] Moving to new root...
 exec /usr/lib/klibc/bin/run-init /overlay/new_root /lib/systemd/systemd
@@ -125,6 +123,7 @@ sway}"
     mkinitramfs > "$output_dir/initramfs.img"
     cd "$output_dir"
     bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img 4096
+    reset
 }
 
 (return 0 2>/dev/null) || main "$@"
