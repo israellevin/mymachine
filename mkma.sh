@@ -61,23 +61,23 @@ mkinitramfs() {
 echo [init] Starting mkma.sh init script...
 
 echo [init] Mounting tmpfs for overlay...
-mkdir /overlay
-mount -t tmpfs -o size=8G tmpfs /overlay
+mkdir /overlay/
+mount -t tmpfs -o size=8G tmpfs /overlay/
+mkdir /overlay/lower/ /overlay/upper/ /overlay/work/ /overlay/merge/
 
-echo [init] Mounting tmpfs for overlay...
-mkdir /overlay/old_root /overlay/new_root /overlay/upper /overlay/work
-cp -a / /overlay/old_root
+echo [init] Copying current root as base layer...
+cp -a / /overlay/lower/
 
 echo [init] Mounting overlayfs...
-mount -t overlay overlay -o lowerdir=/overlay/old_root,upperdir=/overlay/upper,workdir=/overlay/work /overlay/new_root
-mount --bind /overlay /overlay/new_root/overlay
+mount -t overlay overlay -o lowerdir=/overlay/lower/,upperdir=/overlay/upper/,workdir=/overlay/work/ /overlay/merge/
+mount --bind /overlay/ /overlay/merge/overlay/
 
 echo [init] Moving to new root...
-exec /usr/lib/klibc/bin/run-init /overlay/new_root /lib/systemd/systemd
+exec /usr/lib/klibc/bin/run-init /overlay/merge/ /lib/systemd/systemd
 EOF
 
     chmod +x ./init
-    find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio --null -o -H newc
+    find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio --null -ov --format=newc
 }
 
 bootinitramfs() {
@@ -95,22 +95,38 @@ bootinitramfs() {
         exit 1
     fi
 
-    qemu-system-x86_64 -m "$ramdisk_size" \
-        -kernel "$kernel_image" \
-        -initrd "$initramfs_image" \
-        -append "console=tty root=/dev/ram0 init=/init" \
-        -netdev user,id=mynet0 -device e1000,netdev=mynet0 \
+    qemu_options=(
+        -m "$ramdisk_size"
+        -kernel "$kernel_image"
+        -initrd "$initramfs_image"
+        -append "console=tty root=/dev/ram0 init=/init"
+        -netdev user,id=mynet0
+        -device e1000,netdev=mynet0
         -enable-kvm
+    )
+
+    if [ "$QEMU_VGA" ]; then
+        qemu_options+=(
+            -vga virtio
+            -display sdl,gl=on
+        )
+    fi
+
+    qemu-system-x86_64 "${qemu_options[@]}"
 }
 
 main() {
     local output_dir="$PWD"
     local chroot_dir="$1"
     local packages="${2:-\
-systemd-sysv \
-bash bash-completion bc bsdextrautils bsdutils coreutils git klibc-utils kmod locales mc moreutils psmisc tmux unzip udev vim \
+coreutils dbus-user-session git klibc-utils kmod systemd-sysv udev \
+bash bash-completion bc bsdextrautils bsdutils locales mc moreutils pciutils psmisc tmux unzip vim \
 aria2 ca-certificates curl dhcpcd5 iputils-ping iproute2 iw netbase openssh-server w3m wget wpasupplicant \
 sway}"
+
+    if [ "$QEMU_VGA" ]; then
+        packages+=" mesa-utils libgl1-mesa-dri pciutils"
+    fi
 
     [ "$chroot_dir" ] && cd "$chroot_dir" || {
         echo "Error: Could not change to directory '$chroot_dir'."
@@ -120,9 +136,13 @@ sway}"
     [ -f ./sbin/init ] || mkchroot "$packages"
     mkapt "$packages"
     mkuser
-    mkinitramfs > "$output_dir/initramfs.img"
+    if [ "$INITRAMFS_COMPRESS" ]; then
+        mkinitramfs | zstd -T0 -19 --ultra > "$output_dir/initramfs.zstd.img"
+    else
+        mkinitramfs > "$output_dir/initramfs.img"
+    fi
     cd "$output_dir"
-    bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img 4096
+    bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img
     reset
 }
 
