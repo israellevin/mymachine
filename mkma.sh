@@ -164,16 +164,22 @@ bootinitramfs() {
 main() {
     local output_dir="$PWD"
     local chroot_dir="$1"
-    local packages="${2:-\
-coreutils dbus git klibc-utils kmod systemd-sysv udev util-linux \
-bash bash-completion locales mc tmux vim \
-bc bsdextrautils bsdutils cpio mawk moreutils pciutils psmisc sed ripgrep unzip usbutils zstd \
-aria2 ca-certificates curl dhcpcd5 iputils-ping iproute2 netbase openssh-server w3m wget \
-iw wpasupplicant \
-}"
+    shift
+    local packages=( "$@" )
+    [ "$packages" ] || packages=(
+        dbus dbus-user-session systemd-sysv udev
+        coreutils klibc-utils kmod util-linux
+        bash bash-completion git locales mc tmux vim
+        docker0ce.io python3.12 python3.12-venv
+        cpio tar unrar unzip zst
+        bc bsdextrautils bsdutils mawk moreutils pciutils psmisc sed ripgrep usbutils
+        ca-certificates dhcpcd5 iproute2 netbase
+        aria2 curl iputils-ping openssh-server w3m wget
+        iw wpasupplicant
+    )
 
     if [ "$QEMU_VGA" ]; then
-        packages+=" mesa-utils libgl1-mesa-dri pciutils"
+        packages+=(mesa-utils libgl1-mesa-dri pciutils)
     fi
 
     [ "$chroot_dir" ] && cd "$chroot_dir" || {
@@ -181,17 +187,19 @@ iw wpasupplicant \
         exit 1
     }
 
-    [ -f ./sbin/init ] || mkchroot "$packages"
-    mkapt "$packages"
+    [ -f ./sbin/init ] || mkchroot "${packages[@]}"
+    mkapt "${packages[@]}"
     mkuser
-    if [ "$INITRAMFS_COMPRESS" ]; then
-        mkinitramfs | zstd -T0 -19 --ultra > "$output_dir/initramfs.zstd.img"
+    if [ "$COMPRESSION_LEVEL" ]; then
+        initramfs_file="$output_dir/initramfs.zstd.img"
+        mkinitramfs | zst -$COMPRESSION_LEVEL > "$initramfs_file"
     else
-        mkinitramfs > "$output_dir/initramfs.img"
+        initramfs_file="$output_dir/initramfs.img"
+        mkinitramfs > "$initramfs_file"
     fi
     cd "$output_dir"
 
-    bootinitramfs /boot/vmlinuz-$(uname -r) ./initramfs.img 8192
+    bootinitramfs /boot/vmlinuz-$(uname -r) "$initramfs_file" 8192
 }
 
 (return 0 2>/dev/null) || main "$@"
