@@ -2,7 +2,7 @@
 
 mkchroot() {
     local packages="$(echo "$1" | tr ' ' ',')"
-    debootstrap --variant=minbase --components=main,contrib,non-free,firmware --include="$packages" unstable . || {
+    debootstrap --variant=minbase --components=main,contrib,non-free-firmware --include="$packages" unstable . || {
         echo "Error: debootstrap failed. Ensure you have the required permissions and network access."
         exit 1
     }
@@ -177,7 +177,7 @@ main() {
         dbus dbus-user-session systemd-sysv udev
         coreutils klibc-utils kmod util-linux
         bash bash-completion chafa console-setup git git-delta locales mc tmux vim
-        cpio tar unrar unzip zst
+        cpio gzip tar unrar unzip zstd
         bc bsdextrautils bsdutils mawk moreutils pciutils psmisc sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server w3m wget
@@ -202,7 +202,7 @@ main() {
     mkuser
     if [ "$COMPRESSION_LEVEL" ]; then
         initramfs_file="$output_dir/initramfs.zst"
-        mkinitramfs | zst -$COMPRESSION_LEVEL > "$initramfs_file"
+        mkinitramfs | zstd -T0 -$COMPRESSION_LEVEL --ultra > "$initramfs_file"
     else
         initramfs_file="$output_dir/initramfs"
         mkinitramfs > "$initramfs_file"
