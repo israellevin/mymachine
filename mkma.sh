@@ -197,9 +197,9 @@ main() {
     }
 
     [ -f ./sbin/init ] || mkchroot "${packages[@]}"
-    #mkapt "${packages[@]}"
-    #mkdwl
-    #mkuser
+    mkapt "${packages[@]}"
+    mkdwl
+    mkuser
     if [ "$COMPRESSION_LEVEL" ]; then
         initramfs_file="$output_dir/initramfs.zst"
         mkinitramfs | zst -$COMPRESSION_LEVEL > "$initramfs_file"

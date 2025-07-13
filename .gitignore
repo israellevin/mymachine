@@ -1,2 +1,3 @@
 /chroot/
-/initramfs.img
+/initramfs*
+/persistence.img
