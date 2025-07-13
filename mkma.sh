@@ -8,6 +8,7 @@ mkchroot() {
     }
     mkdir -p ./lib/modules
     cp -a /lib/modules/"$(uname -r)" ./lib/modules/
+    systemd-firstboot --root . --hostname="$(hostname)" --copy
 }
 
 mkapt() {
@@ -197,9 +198,9 @@ main() {
     }
 
     [ -f ./sbin/init ] || mkchroot "${packages[@]}"
-    mkapt "${packages[@]}"
-    mkdwl
-    mkuser
+    #mkapt "${packages[@]}"
+    #mkdwl
+    #mkuser
     if [ "$COMPRESSION_LEVEL" ]; then
         initramfs_file="$output_dir/initramfs.zst"
         mkinitramfs | zstd -T0 -$COMPRESSION_LEVEL --ultra > "$initramfs_file"
@@ -209,7 +210,7 @@ main() {
     fi
     cd "$output_dir"
 
-    bootinitramfs /boot/vmlinuz-$(uname -r) "$initramfs_file" 8192
+    #bootinitramfs /boot/vmlinuz-$(uname -r) "$initramfs_file" 8192
 }
 
 (return 0 2>/dev/null) || main "$@"
