@@ -2,7 +2,7 @@
 
 mkchroot() {
     local packages="$(echo "$1" | tr ' ' ',')"
-    debootstrap --variant=minbase --components=main,contrib,non-free,firmware --include="$packages" sid . || {
+    debootstrap --variant=minbase --components=main,contrib,non-free,firmware --include="$packages" unstable . || {
         echo "Error: debootstrap failed. Ensure you have the required permissions and network access."
         exit 1
     }
@@ -11,7 +11,7 @@ mkchroot() {
 }
 
 mkapt() {
-    local packages="$1"
+    local packages="$@"
 
     mkdir ./fake
     for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
@@ -28,11 +28,19 @@ EOF
 export PATH="/fake:\$PATH"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --fix-broken $packages
+apt-get install -y $packages
 apt clean
 EOF
 
     rm -rf ./fake
+}
+
+mkdwl() {
+    curl https://raw.githubusercontent.com/israellevin/dwl/refs/heads/mine/Dockerfile > Dockerfile
+    docker build -t dwl-builder .
+    rm Dockerfile
+    docker run --rm --name dwl-builder -dp 80:8000 dwl-builder
+    chroot . sh -c 'curl localhost | tar -xC /'
 }
 
 mkuser() {
@@ -77,7 +85,6 @@ emergency() { _log 2 "Emergency: $*"; /bin/bash; }
 on_any_error() { emergency An error occurred on "'$last_command'"; }
 trap 'last_command=$current_command; current_command=$BASH_COMMAND' DEBUG
 trap 'on_any_error' EXIT
-set -e
 
 info Starting init process
 
@@ -169,13 +176,15 @@ main() {
     [ "$packages" ] || packages=(
         dbus dbus-user-session systemd-sysv udev
         coreutils klibc-utils kmod util-linux
-        bash bash-completion git locales mc tmux vim
-        docker0ce.io python3.12 python3.12-venv
+        bash bash-completion chafa console-setup git git-delta locales mc tmux vim
         cpio tar unrar unzip zst
         bc bsdextrautils bsdutils mawk moreutils pciutils psmisc sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server w3m wget
-        iw wpasupplicant
+        firmware-iwlwifi iw wpasupplicant
+        docker.io docker-cli npm python3-pip python3-venv
+        foot firefox wl-clipboard wmenu
+        ffmpeg mpv pipewire-audio yt-dlp
     )
 
     if [ "$QEMU_VGA" ]; then
@@ -188,13 +197,14 @@ main() {
     }
 
     [ -f ./sbin/init ] || mkchroot "${packages[@]}"
-    mkapt "${packages[@]}"
-    mkuser
+    #mkapt "${packages[@]}"
+    #mkdwl
+    #mkuser
     if [ "$COMPRESSION_LEVEL" ]; then
-        initramfs_file="$output_dir/initramfs.zstd.img"
+        initramfs_file="$output_dir/initramfs.zst"
         mkinitramfs | zst -$COMPRESSION_LEVEL > "$initramfs_file"
     else
-        initramfs_file="$output_dir/initramfs.img"
+        initramfs_file="$output_dir/initramfs"
         mkinitramfs > "$initramfs_file"
     fi
     cd "$output_dir"
