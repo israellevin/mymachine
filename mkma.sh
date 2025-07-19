@@ -1,13 +1,13 @@
 #!/bin/bash
 
 mkchroot() {
-    local packages="$(echo "$1" | tr ' ' ',')"
-    debootstrap --variant=minbase --components=main,contrib,non-free-firmware --include="$packages" unstable . || {
-        echo "Error: debootstrap failed. Ensure you have the required permissions and network access."
-        exit 1
-    }
+    local packages="$(echo "$@" | tr ' ' ',')"
+    local variant=minbase
+    local components=main,contrib,non-free,non-free-firmware
+    local branch=unstable
+    debootstrap --variant=$variant --components=$components --include="$packages" $branch .
     mkdir -p ./lib/modules
-    cp -a /lib/modules/"$(uname -r)" ./lib/modules/
+    cp -a --parents /lib/modules/"$(uname -r)" .
     systemd-firstboot --root . --hostname="$(hostname)" --copy
 }
 
@@ -28,8 +28,9 @@ EOF
     chroot . <<EOF
 export PATH="/fake:\$PATH"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y $packages
+apt update
+apt --fix-broken install -y  # Sometimes debootstrap leaves broken packages.
+apt install -y $packages
 apt clean
 EOF
 
@@ -47,7 +48,7 @@ mkdwl() {
 mkuser() {
     echo auth sufficient pam_wheel.so trust >> ./etc/pam.d/su
     if [ -w ./etc/locale.gen ]; then
-        echo "en_US.UTF-8 UTF-8" > ./etc/locale.gen
+        echo en_US.UTF-8 UTF-8 > ./etc/locale.gen
         chroot . locale-gen || true
     fi
     chroot . <<EOF
@@ -62,100 +63,122 @@ EOF
     reset
 }
 
-mkinitramfs() {
-    mkdir -p ./{proc,sys,dev,tmp,run}
-    chmod 1777 ./tmp
-    mknod -m 622 ./dev/console c 5 1 2>/dev/null || true
-    mknod -m 666 ./dev/null c 1 3 2>/dev/null || true
+mkcpio() {
+    local level=$1
+    find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio -o --null --format=newc | zstd -T0 -$level
+}
 
+mkinitramfsinit() {
     cat <<'EOF' > ./init
-#!/bin/bash
-persistence_path="/mnt/boot/mkma.persistence"
+#!/bin/sh
+new_root_path=/root
 
-mount -t devtmpfs devtmpfs /dev/
+mount -t devtmpfs devtmpfs /dev
 _log() {
-    local level="$1"
+    level=$1
     shift
-    local message="$(date) [mkma.sh init]: $*"
-    echo "$message"
+    message="$(date) [mkma.sh init]: $*"
     echo "<$level>$message" > /dev/kmsg
 }
 info() { _log 6 "Info: $*"; }
 error() { _log 3 "Error: $*"; }
-emergency() { _log 2 "Emergency: $*"; /bin/bash; }
-on_any_error() { emergency An error occurred on "'$last_command'"; }
-trap 'last_command=$current_command; current_command=$BASH_COMMAND' DEBUG
-trap 'on_any_error' EXIT
+emergency() { _log 2 "Emergency: $*"; /bin/sh; }
 
 info Starting init process
 
-info Mounting tmpfs for overlay
-mkdir /overlay/
-mount -t tmpfs -o size=8G tmpfs /overlay/
-mkdir /overlay/lower/ /overlay/upper/ /overlay/work/ /overlay/merge/
+info Mounting tmpfs for new root
+mkdir -p "$new_root_path"
+mount -t tmpfs -o size=8G tmpfs "$new_root_path"
 
-info Copying current root as base layer
-cp -a / /overlay/lower/ 2>/dev/null || true
-
-info Searching for persistence layer
+info Getting mkma storage
+mkdir -p /proc /mnt
 mount -t proc proc /proc
-persistence_device=$(grep -oP 'persistence_device=\K[^ ]+' /proc/cmdline)
-umount /proc
-if [ "$persistence_device" ]; then
-    info Mounting persistence device "$persistence_device"
-    mount "$persistence_device" /mnt/ || error Could not mount persistence device "$persistence_device"
-    if [ -f "$persistence_path" ]; then
-        info Copying persistence data
-        zstdcat "$persistence_path" | cpio -id --no-absolute-filenames -D /overlay/lower/
-    else
-        error No persistence data found on "$persistence_path"
-    fi
-    umount /mnt
-fi
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in
+        mkma_storage_device=*)
+            mkma_storage_device="${arg#mkma_storage_device=}"
+            ;;
+        mkma_storage_path=*)
+            mkma_storage_path="${arg#mkma_storage_path=}"
+            ;;
+    esac
+done
+modprobe crc32c_generic
+modprobe ext4
+mount "$mkma_storage_device" /mnt || emergency Could not mount mkma storage device "'$mkma_storage_device'"
+[ -f "/mnt/$mkma_storage_path" ] || emergency Could not find root image at "'/mnt/$mkma_storage_path'"
 
-info Mounting overlayfs
-mount -t overlay overlay -o lowerdir=/overlay/lower/,upperdir=/overlay/upper/,workdir=/overlay/work/ /overlay/merge/ \
-    || emergency Could not mount overlayfs, aboting to shell
-mount --bind /overlay/ /overlay/merge/overlay/
+info Copying root image data
+cd "$new_root_path"
+pv -pterab /mnt"$mkma_storage_path" | zstd -dcf | cpio -id || emergency Could not copy root image data
+umount /mnt
 
 info Moving to new root
-exec /usr/lib/klibc/bin/run-init /overlay/merge/ /lib/systemd/systemd
+exec run-init /root /lib/systemd/systemd || emergency Failed pivot to systemd
 EOF
 
     chmod +x ./init
-    find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio -o --null --format=newc
+}
+
+mkinitramfs() {
+    mkdir -p ./{bin,dev,mnt,proc,sys,run,tmp}
+    chmod 1777 ./tmp
+    mknod -m 622 ./dev/console c 5 1 2>/dev/null || true
+    mknod -m 666 ./dev/null c 1 3 2>/dev/null || true
+
+    cp -a --parents /lib/modules/"$(uname -r)"/modules.dep .
+    for required_module in ext4 pci; do
+        for dependency_module in $(modprobe --show-depends $required_module | cut -d' ' -f2); do
+            mkdir -p ".$(dirname "$dependency_module")"
+            cp -au --parents "$dependency_module" .
+        done
+    done
+
+    for binary in busybox pv zstd; do
+        binary="$(type -p $binary)"
+        cp -a "$binary" ./bin/.
+        for library in $(ldd "$binary" 2> /dev/null | grep -o '/[^ ]*'); do
+            cp -auL --parents "$library" .
+        done
+    done
+
+    cd ./bin
+    for applet in $(./busybox --list | grep -v busybox); do
+        ln -s ./busybox "./$applet"
+    done
+    cd -
+
+    mkinitramfsinit
 }
 
 bootinitramfs() {
     local kernel_image="$1"
     local initramfs_image="$2"
-    local ramdisk_size="${3:-4096}"
-    local persistence_filesystem_image="${4:-./persistence.img}"
+    local root_image="$3"
+    local qemu_disk="$4"
+    local ramdisk_size="$5"
 
-    if [ ! -f "$kernel_image" ]; then
-        echo "Error: Kernel image $kernel_image not found."
-        exit 1
+    if [ ! -f "$qemu_disk" ]; then
+        set -x
+        qemu-img create -f raw "$qemu_disk" $ramdisk_size
+        set +x
+        mkfs.ext4 -F "$qemu_disk"
     fi
-
-    if [ ! -f "$initramfs_image" ]; then
-        echo "Error: Initramfs image $initramfs_image not found."
-        exit 1
-    fi
-
-    if [ ! -f "$persistence_filesystem_image" ]; then
-        qemu-img create -f raw "$persistence_filesystem_image" 1G
-        mkfs.ext4 -F "$persistence_filesystem_image"
-    fi
+    mkdir ./mnt
+    mount "$qemu_disk" ./mnt
+    cp --parents "$root_image" ./mnt/.
+    umount ./mnt
+    rmdir ./mnt
 
     qemu_options=(
         -m "$ramdisk_size"
         -kernel "$kernel_image"
         -initrd "$initramfs_image"
-        -append "console=tty root=/dev/ram0 init=/init persistence_device=/dev/nvme0n1"
+        -append "console=tty root=/dev/ram0 init=/init mkma_storage_device=/dev/nvme0n1 mkma_storage_path=$root_image"
         -netdev user,id=mynet0
         -device e1000,netdev=mynet0
         -enable-kvm
-        -drive file="$persistence_filesystem_image",format=raw,if=none,id=nvme0
+        -drive file="$qemu_disk",format=raw,if=none,id=nvme0
         -device nvme,drive=nvme0,serial=deadbeef
     )
 
@@ -169,12 +192,18 @@ bootinitramfs() {
     qemu-system-x86_64 "${qemu_options[@]}"
 }
 
-main() {
-    local output_dir="$PWD"
-    local chroot_dir="$1"
-    shift
-    local packages=( "$@" )
-    [ "$packages" ] || packages=(
+mkcd() {
+    mkdir -p "$1"
+    cd "$1"
+}
+
+mkma() {
+    local chroot_dir="$(realpath ./chroot)"
+    local initramfs_dir="$(realpath ./initramfs)"
+    local root_image="$PWD/mkma.root.cpio.zst"
+    local initramfs_image="$PWD/mkma.init.cpio.zst"
+    local qemu_disk="$PWD/mkma.qemu.disk.raw"
+    local packages=(
         dbus dbus-user-session systemd-sysv udev
         coreutils klibc-utils kmod util-linux
         bash bash-completion chafa console-setup git git-delta locales mc tmux vim
@@ -183,7 +212,7 @@ main() {
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server w3m wget
         firmware-iwlwifi iw wpasupplicant
-        docker.io docker-cli npm python3-pip python3-venv
+        docker.io docker-cli nodejs npm python3-pip python3-venv
         foot firefox wl-clipboard wmenu
         ffmpeg mpv pipewire-audio yt-dlp
     )
@@ -192,25 +221,23 @@ main() {
         packages+=(mesa-utils libgl1-mesa-dri pciutils)
     fi
 
-    [ "$chroot_dir" ] && cd "$chroot_dir" || {
-        echo "Error: Could not change to directory '$chroot_dir'."
-        exit 1
-    }
-
+    mkcd "$chroot_dir"
     [ -f ./sbin/init ] || mkchroot "${packages[@]}"
-    #mkapt "${packages[@]}"
-    #mkdwl
-    #mkuser
-    if [ "$COMPRESSION_LEVEL" ]; then
-        initramfs_file="$output_dir/initramfs.zst"
-        mkinitramfs | zstd -T0 -$COMPRESSION_LEVEL --ultra > "$initramfs_file"
-    else
-        initramfs_file="$output_dir/initramfs"
-        mkinitramfs > "$initramfs_file"
-    fi
-    cd "$output_dir"
+    mkapt "${packages[@]}"
+    mkdwl
+    mkuser
+    mkcpio "$COMPRESSION_LEVEL" > "$root_image"
 
-    #bootinitramfs /boot/vmlinuz-$(uname -r) "$initramfs_file" 8192
+    mkcd "$initramfs_dir"
+    [ -f ./init ] || mkinitramfs
+    mkcpio "$COMPRESSION_LEVEL" > "$initramfs_image"
+
+    echo Testing mkma on QEMU...
+    bootinitramfs /boot/vmlinuz-$(uname -r) "$initramfs_image" "$root_image" "$qemu_disk" 2G
+
+    echo kernel: /boot/vmlinuz-$(uname -r)
+    echo initramfs: "$initramfs_image"
+    echo parameters: "mkma_storage_device=$(df "$root_image" | grep -o '/dev/[^ ]*') mkma_storage_path=$root_image"
 }
 
-(return 0 2>/dev/null) || main "$@"
+(return 0 2>/dev/null) || mkma "$@"
