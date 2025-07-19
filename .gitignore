@@ -1,3 +1,5 @@
 /chroot/
-/initramfs*
-/persistence.img
+/initramfs/
+/output/
+/qemu_disk.img
+/mkma*.cpio.zst
