@@ -1,4 +1,4 @@
 /chroot/
 /initramfs/
-/qemu_disk.raw
 /mkma*.cpio.zst
+/mkma.qemu.disk.raw
