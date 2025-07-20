@@ -230,7 +230,7 @@ mkma() {
         ffmpeg mpv pipewire-audio yt-dlp
         firmware-intel-graphics foot firefox wl-clipboard wmenu
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
-        libxcb-render0 libxcb-res0 libxcb-xinput0 libinput10 libliftoff0 libseat1
+        libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
 
     if ! [ "$DISABLE_QEMU_TESTING" ]; then
