@@ -93,7 +93,6 @@ mount -t tmpfs -o size=8G tmpfs "$new_root_path"
 info Getting mkma storage parameters
 mkdir -p /proc /mnt
 mount -t proc proc /proc
-mount -t sysfs sysfs /sys
 for arg in $(cat /proc/cmdline); do
     case "$arg" in
         mkma_storage_device=*)
@@ -216,7 +215,7 @@ mkma() {
     local root_image="$PWD/mkma.root.cpio.zst"
     local initramfs_image="$PWD/mkma.init.cpio.zst"
     local qemu_disk="$PWD/mkma.qemu.disk.raw"
-    local initramfs_binaries=(busybox pv zstd lsblk)
+    local initramfs_binaries=(busybox pv zstd)
     local initramfs_modules=(ext4 nvme pci)
     local packages=(
         dbus dbus-user-session systemd-sysv udev
