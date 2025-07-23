@@ -6,8 +6,10 @@ mkchroot() {
     local components=main,contrib,non-free,non-free-firmware
     local branch=unstable
     debootstrap --variant=$variant --components=$components --include="$packages" $branch .
+
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
+
     systemd-firstboot --root . --hostname="$(hostname)" --copy
 }
 
@@ -71,9 +73,10 @@ mkcpio() {
 mkinit() {
     cat <<'EOF' > ./init
 #!/bin/sh
-new_root_path=/root
 
+mkdir -p /dev
 mount -t devtmpfs devtmpfs /dev
+
 _log() {
     level=$1
     shift
@@ -84,49 +87,93 @@ info() { _log 6 "Info: $@"; }
 error() { _log 3 "Error: $@"; }
 emergency() { _log 2 "Emergency: $@"; /bin/sh; }
 
-info Starting init process
+info Starting mkma init process
 
-info Mounting tmpfs for new root on "$new_root_path"
-mkdir -p "$new_root_path"
-mount -t tmpfs -o size=8G tmpfs "$new_root_path"
-
-info Getting mkma storage parameters
-mkdir -p /proc /mnt
+info Getting mkma parameters
+mkdir -p /proc
 mount -t proc proc /proc
 for arg in $(cat /proc/cmdline); do
     case "$arg" in
-        mkma_storage_device=*)
-            mkma_storage_device="${arg#mkma_storage_device=}"
+        mkma_images_device=*)
+            mkma_images_device="${arg#mkma_images_device=}"
             ;;
-        mkma_storage_path=*)
-            mkma_storage_path="${arg#mkma_storage_path=/}"
+        mkma_images_path=*)
+            images_path="${arg#mkma_images_path=/}"
             ;;
     esac
 done
 
-info Mounting mkma storage device "'$mkma_storage_device'"
+overlay_dir=/overlay
+info Mounting mkma tmpfs for mkma overlay on "$overlay_dir"
+mkdir -p "$overlay_dir"
+mount -t tmpfs -o size=8G tmpfs "$overlay_dir" || \
+    emergency Could not mount tmpfs on "'$overlay_dir'"
+
+mount_dir=/mnt
+info Mounting mkma images device "'$mkma_images_device'" on "$mount_dir"
+mkdir -p "$mount_dir"
 modprobe nvme
 modprobe crc32c_generic
 modprobe ext4
 modprobe virtio_blk || true  # Just for qemu testing.
 modprobe virtio_pci || true  # Just for qemu testing.
-mount "$mkma_storage_device" /mnt || \
-    emergency Could not mount mkma storage device "'$mkma_storage_device'"
-mkma_storage_path="/mnt/$mkma_storage_path"
+mount "$mkma_images_device" "$mount_dir" || \
+    emergency Could not mount mkma images device "'$mkma_images_device'" on "'$mount_dir'"
+images_dir="$mount_dir/$images_path"
 
-info Checking mkma storage path "'$mkma_storage_path'"
-[ -f "$mkma_storage_path" ] || \
-    emergency Could not find root image at "'$mkma_storage_path'"
+base_dir=/overlay/base
+info Copying mkma base image data from "'$images_dir'" to "'$base_dir'"
+mkdir -p "$base_dir"
+cd "$base_dir"
+pv -pterab "$images_dir"/base.cpio.zst | zstd -dcfT0 | cpio -id || \
+    emergency Could not copy base image data from "'$images_dir'" to "'$base_dir'"
 
-info Copying root image data from "'$mkma_storage_path'" to "'$new_root_path'"
-cd "$new_root_path"
-pv -pterab "$mkma_storage_path" | zstd -dcf | cpio -id || \
-    emergency "Could not copy root image data from $mkma_storage_path'"
+info Checking for mkma persistence images on "'$images_dir'"
+for image in "$images_dir"/persistence.*.cpio.zst; do
+    if [ -f "$image" ]; then
+        info Copying mkma persistence image data from "'$image'" to "'$base_dir'"
+        pv -pterab "$image" | zstd -dcfT0 | cpio -id || \
+            error Could not copy persistence image data from "'$image'"
+    fi
+done
+
 umount /mnt
+umount /proc
 
-info Moving to new root on "$new_root_path"
-exec run-init /root /lib/systemd/systemd || \
-    emergency Failed pivot to systemd on "$new_root_path"
+persistence_script="$base_dir/sbin/persist"
+info Creating persistance script in "$persistence_script"
+fresh_dir=/overlay/fresh
+cat > "$persistence_script" <<EOIF
+#!/bin/sh
+persist_list=/tmp/mkma.persist.list
+persist_file="\$PWD/persistence.\$(date +%Y-%m-%d-%H:%M).cpio.zst"
+
+cd "$fresh_dir"
+find . -mount > \$persist_list
+vi \$persist_list
+pv -ls \$(wc -l \$persist_list | cut -d' ' -f1) \$persist_list | cpio -o --format=newc | zstd -T0 -19 > \
+    "\$persist_file"
+EOIF
+chmod +x "$persistence_script"
+
+info Mounting mkma overlayfs
+work_dir=/overlay/work
+merge_dir=/overlay/merge
+mkdir -p "$fresh_dir" "$work_dir" "$merge_dir"
+modprobe overlay || \
+    emergency Could not load overlay module
+mount -t overlay overlay -o lowerdir="$base_dir",upperdir="$fresh_dir",workdir="$work_dir" "$merge_dir" || \
+    emergency "Could not mount overlayfs on '$merge_dir' with lower='$base_dir', upper='$fresh_dir', work='$work_dir'"
+
+bind_dir="$merge_dir/overlay"
+info Binding mkma overlay to merge directory in "$bind_dir"
+mkdir -p "$bind_dir"
+mount --bind "$overlay_dir" "$bind_dir" || \
+    error "Could not bind mount '$merge_dir' to '$bind_dir' - overlay will not be accessible from new root"
+
+info Moving to mkma root on "$merge_dir"
+exec run-init "$merge_dir" /lib/systemd/systemd || \
+    emergency Failed pivot to systemd on "$merge_dir"
 EOF
 
     chmod +x ./init
@@ -135,10 +182,6 @@ EOF
 mkinitramfs() {
     local modules="$1"
     local binaries="$2"
-    mkdir -p ./{bin,dev,mnt,proc,sys,run,tmp}
-    chmod 1777 ./tmp
-    mknod -m 622 ./dev/console c 5 1 2>/dev/null || true
-    mknod -m 666 ./dev/null c 1 3 2>/dev/null || true
 
     cp -a --parents /lib/modules/"$(uname -r)"/modules.dep .
     for required_module in $modules; do
@@ -149,6 +192,7 @@ mkinitramfs() {
         done
     done
 
+    mkdir -p ./bin
     for binary in $binaries; do
         binary="$(type -p $binary)"
         cp -a "$binary" ./bin/.
@@ -169,7 +213,7 @@ mkinitramfs() {
 test_on_qemu() {
     local kernel_image="$1"
     local initramfs_image="$2"
-    local root_image="$3"
+    local images_dir="$3"
     local qemu_disk="$4"
     local ramdisk_size="$5"
 
@@ -179,7 +223,8 @@ test_on_qemu() {
     fi
     mkdir -p ./mnt
     mount "$qemu_disk" ./mnt
-    cp --parents "$root_image" ./mnt/.
+    set -x
+    cp --parents "$images_dir/"*.zst ./mnt/.
     umount ./mnt
     rmdir ./mnt
 
@@ -187,7 +232,7 @@ test_on_qemu() {
         -m "$ramdisk_size"
         -kernel "$kernel_image"
         -initrd "$initramfs_image"
-        -append "console=tty root=/dev/ram0 init=/init mkma_storage_device=/dev/vda mkma_storage_path=$root_image"
+        -append "console=tty root=/dev/ram0 init=/init mkma_images_device=/dev/vda mkma_images_path=$images_dir"
         -netdev user,id=mynet0
         -device e1000,netdev=mynet0
         -drive file="$qemu_disk",format=raw,if=virtio,cache=none
@@ -212,11 +257,11 @@ mkcd() {
 mkma() {
     local chroot_dir="$(realpath ./chroot)"
     local initramfs_dir="$(realpath ./initramfs)"
-    local root_image="$PWD/mkma.root.cpio.zst"
-    local initramfs_image="$PWD/mkma.init.cpio.zst"
-    local qemu_disk="$PWD/mkma.qemu.disk.raw"
+    local base_image="$PWD/base.cpio.zst"
+    local initramfs_image="$PWD/init.cpio.zst"
+    local qemu_disk="$PWD/qemu.disk.raw"
     local initramfs_binaries=(busybox pv zstd)
-    local initramfs_modules=(ext4 nvme pci)
+    local initramfs_modules=(ext4 nvme overlay pci)
     local packages=(
         dbus dbus-user-session systemd-sysv udev
         coreutils klibc-utils kmod util-linux
@@ -245,7 +290,7 @@ mkma() {
     mkapt "${packages[@]}"
     mkdwl
     mkuser
-    mkcpio "$COMPRESSION_LEVEL" > "$root_image"
+    mkcpio "$COMPRESSION_LEVEL" > "$base_image"
 
     rm -rf "$initramfs_dir"
     mkcd "$initramfs_dir"
@@ -254,12 +299,12 @@ mkma() {
 
     if ! [ "$DISABLE_QEMU_TESTING" ]; then
         echo Testing mkma on QEMU...
-        test_on_qemu /boot/vmlinuz-$(uname -r) "$initramfs_image" "$root_image" "$qemu_disk" 4G
+        test_on_qemu /boot/vmlinuz-$(uname -r) "$initramfs_image" "$(dirname "$base_image")" "$qemu_disk" 4G
     fi
 
     echo kernel: /boot/vmlinuz-$(uname -r)
     echo initramfs: "$initramfs_image"
-    echo parameters: "mkma_storage_device=$(df "$root_image" | grep -o '/dev/[^ ]*') mkma_storage_path=$root_image"
+    echo parameters: "mkma_images_device=$(df "$base_image" | grep -o '/dev/[^ ]*') mkma_images_path=$(dirname "$base_image")"
 }
 
 (return 0 2>/dev/null) || mkma "$@"
