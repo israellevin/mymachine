@@ -1,6 +1,8 @@
 #!/bin/bash
 
 mkchroot() {
+    local host_name="$1"
+    shift
     local packages="$(echo "$@" | tr ' ' ',')"
     local variant=minbase
     local components=main,contrib,non-free,non-free-firmware
@@ -10,7 +12,7 @@ mkchroot() {
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
 
-    systemd-firstboot --root . --hostname="$(hostname)" --copy
+    systemd-firstboot --root . --hostname="$host_name" --copy
 }
 
 mkapt() {
@@ -55,7 +57,8 @@ mkuser() {
     fi
     chroot . <<EOF
 groupadd wheel
-useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel i
+groupadd sudo
+useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel,sudo i
 passwd -d root
 passwd -d i
 su -c '
@@ -255,6 +258,7 @@ mkcd() {
 }
 
 mkma() {
+    local host_name="${1:-$(hostname)}"
     local chroot_dir="$(realpath ./chroot)"
     local initramfs_dir="$(realpath ./initramfs)"
     local base_image="$PWD/base.cpio.zst"
@@ -263,7 +267,7 @@ mkma() {
     local initramfs_binaries=(busybox pv zstd)
     local initramfs_modules=(ext4 nvme overlay pci)
     local packages=(
-        dbus dbus-user-session systemd-sysv udev
+        dbus dbus-user-session sudo systemd-sysv udev
         coreutils klibc-utils kmod util-linux
         bash bash-completion chafa console-setup git git-delta less locales man mc tmux vim
         cpio gzip tar unrar unzip zstd
@@ -271,7 +275,7 @@ mkma() {
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server w3m wget
         firmware-iwlwifi iw wpasupplicant
-        docker.io docker-cli nodejs npm python3-pip python3-venv
+        debootstrap docker.io docker-cli nodejs npm python3-pip python3-venv
         ffmpeg mpv pipewire-audio yt-dlp
         firmware-intel-graphics foot firefox wl-clipboard wmenu
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
@@ -286,7 +290,7 @@ mkma() {
     fi
 
     mkcd "$chroot_dir"
-    [ -f ./sbin/init ] || mkchroot "${packages[@]}"
+    [ -f ./sbin/init ] || mkchroot "$host_name" "${packages[@]}"
     mkapt "${packages[@]}"
     mkdwl
     mkuser
