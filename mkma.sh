@@ -277,7 +277,7 @@ mkma() {
         firmware-iwlwifi iw wpasupplicant
         debootstrap docker.io docker-cli nodejs npm python3-pip python3-venv
         ffmpeg mpv pipewire-audio yt-dlp
-        firmware-intel-graphics foot firefox wl-clipboard wmenu
+        firmware-intel-graphics foot firefox wl-clipboard wmenu xwayland
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
         libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
