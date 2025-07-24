@@ -265,7 +265,7 @@ mkma() {
     local packages=(
         dbus dbus-user-session systemd-sysv udev
         coreutils klibc-utils kmod util-linux
-        bash bash-completion chafa console-setup git git-delta locales mc tmux vim
+        bash bash-completion chafa console-setup git git-delta less locales man mc tmux vim
         cpio gzip tar unrar unzip zstd
         bc bsdextrautils bsdutils mawk moreutils pciutils psmisc pv sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
