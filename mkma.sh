@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 mkchroot() {
     local host_name="$1"
@@ -7,7 +7,8 @@ mkchroot() {
     local variant=minbase
     local components=main,contrib,non-free,non-free-firmware
     local branch=unstable
-    debootstrap --variant=$variant --components=$components --include="$packages" $branch .
+    local mirror=http://deb.debian.org/debian
+    debootstrap --variant=$variant --components=$components --include="$packages" $branch . $mirror
 
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
