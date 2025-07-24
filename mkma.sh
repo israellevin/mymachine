@@ -275,7 +275,7 @@ mkma() {
         bc bsdextrautils bsdutils mawk moreutils pciutils psmisc pv sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server w3m wget
-        firmware-iwlwifi iw wpasupplicant
+        firmware-iwlwifi iwd
         debootstrap docker.io docker-cli nodejs npm python3-pip python3-venv
         ffmpeg mpv pipewire-audio yt-dlp
         firmware-intel-graphics foot firefox wl-clipboard wmenu xwayland
