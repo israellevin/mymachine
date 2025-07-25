@@ -4,11 +4,14 @@ mkchroot() {
     local host_name="$1"
     shift
     local packages="$(echo "$@" | tr ' ' ',')"
+    local suit=stable
     local variant=minbase
     local components=main,contrib,non-free,non-free-firmware
-    local branch=unstable
+    local extra_suits=stable
     local mirror=http://deb.debian.org/debian
-    debootstrap --variant=$variant --components=$components --include="$packages" $branch . $mirror
+    [ "$packages" ] && packages="--include=$packages"
+    debootstrap --verbose --variant=$variant --components=$components --extra-suites=$extra_suits $packages \
+        $suit . $mirror
 
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
@@ -35,7 +38,7 @@ export PATH="/fake:\$PATH"
 export DEBIAN_FRONTEND=noninteractive
 apt update
 apt --fix-broken install -y  # Sometimes debootstrap leaves broken packages.
-apt install -y $packages
+apt install -y $packages || exit 1
 apt clean
 EOF
 
@@ -252,7 +255,8 @@ test_on_qemu() {
     qemu-system-x86_64 "${qemu_options[@]}"
 }
 
-mkcd() {
+mkcleancd() {
+    [ -d "$1" ] && rm -rf "$1"
     mkdir -p "$1"
     cd "$1"
 }
@@ -266,8 +270,8 @@ mkma() {
     local qemu_disk="$PWD/qemu.disk.raw"
     local initramfs_binaries=(busybox pv zstd)
     local initramfs_modules=(ext4 nvme overlay pci)
-    local packages=(
-        dbus dbus-user-session sudo systemd-sysv udev
+    local base_packages=(dbus dbus-user-session systemd-sysv udev)
+    local packages=("${base_packages[@]}"
         coreutils klibc-utils kmod util-linux
         bash bash-completion chafa console-setup git git-delta less locales man mc tmux vim
         cpio gzip tar unrar unzip zstd
@@ -282,6 +286,13 @@ mkma() {
         libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
 
+    if [ -f "$chroot_dir/sbin/init" ]; then
+        cd "$chroot_dir"
+    else
+        mkcleancd "$chroot_dir"
+        mkchroot "$host_name" "${base_packages[@]}"
+    fi
+
     if ! [ "$DISABLE_QEMU_TESTING" ]; then
         initramfs_modules+=(virtio_pci virtio_blk)
         if [ "$QEMU_VGA" ]; then
@@ -289,15 +300,12 @@ mkma() {
         fi
     fi
 
-    mkcd "$chroot_dir"
-    [ -f ./sbin/init ] || mkchroot "$host_name" "${packages[@]}"
     mkapt "${packages[@]}"
     mkdwl
     mkuser
     mkcpio "$COMPRESSION_LEVEL" > "$base_image"
 
-    rm -rf "$initramfs_dir"
-    mkcd "$initramfs_dir"
+    mkcleancd "$initramfs_dir"
     mkinitramfs "${initramfs_modules[*]}" "${initramfs_binaries[*]}"
     mkcpio "$COMPRESSION_LEVEL" > "$initramfs_image"
 
