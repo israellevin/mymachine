@@ -189,10 +189,9 @@ mkinitramfs() {
 
     cp -a --parents /lib/modules/"$(uname -r)"/modules.dep .
     for required_module in $modules; do
-        echo $module
-        for dependency_module in $(modprobe --show-depends $required_module | cut -d' ' -f2); do
-            mkdir -p ".$(dirname "$dependency_module")"
-            cp -au --parents "$dependency_module" .
+        for dependency in $(modprobe --show-depends $required_module | grep -Po '^insmod \K.*$'); do
+            mkdir -p ".$(dirname "$dependency")"
+            cp -au --parents "$dependency" .
         done
     done
 
