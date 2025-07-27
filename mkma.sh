@@ -4,7 +4,7 @@ mkchroot() {
     local host_name="$1"
     shift
     local packages="$(echo "$@" | tr ' ' ',')"
-    local suit=stable
+    local suit=unstable
     local variant=minbase
     local components=main,contrib,non-free,non-free-firmware
     local extra_suits=stable
@@ -16,15 +16,15 @@ mkchroot() {
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
 
-    systemd-firstboot --root . --hostname="$host_name" --copy
+    systemd-firstboot --force --root . --hostname="$host_name" --copy
 }
 
 mkapt() {
     local packages="$@"
 
-    mkdir ./fake
+    mkdir -p ./fake
     for binary in initctl invoke-rc.d restart start stop start-stop-daemon service; do
-        ln -s ./bin/true ./fake/$binary
+        ln -s --backup ./bin/true ./fake/$binary
     done
 
     mkdir -p ./etc/apt
@@ -277,11 +277,11 @@ mkma() {
         cpio gzip tar unrar unzip zstd
         bc bsdextrautils bsdutils mawk moreutils pciutils psmisc pv sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
-        aria2 curl iputils-ping openssh-server w3m wget
+        aria2 curl iputils-ping openssh-server sshfs w3m wget
         firmware-iwlwifi iwd
         debootstrap docker.io docker-cli nodejs npm python3-pip python3-venv
-        ffmpeg mpv pipewire-audio yt-dlp
-        firmware-intel-graphics foot firefox wl-clipboard wmenu xwayland
+        bluez ffmpeg mpv pipewire-audio yt-dlp
+        cliphist firmware-intel-graphics foot firefox wl-clipboard wmenu xwayland
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
         libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
@@ -296,7 +296,7 @@ mkma() {
     if ! [ "$DISABLE_QEMU_TESTING" ]; then
         initramfs_modules+=(virtio_pci virtio_blk)
         if [ "$QEMU_VGA" ]; then
-            packages+=(mesa-utils libgl1-mesa-dri pciutils)
+            packages+=(mesa-utils libgl1-mesa-dri)
         fi
     fi
 
