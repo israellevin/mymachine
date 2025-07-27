@@ -46,7 +46,7 @@ EOF
 }
 
 mkdwl() {
-    curl https://raw.githubusercontent.com/israellevin/dwl/refs/heads/mine/Dockerfile > Dockerfile
+    curl https://raw.githubusercontent.com/israellevin/dwl/refs/heads/master/Dockerfile > Dockerfile
     docker build -t dwl-builder .
     rm Dockerfile
     docker run --rm --name dwl-builder -dp 80:8000 dwl-builder
