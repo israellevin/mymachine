@@ -67,7 +67,8 @@ passwd -d root
 passwd -d i
 su -c '
     git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
-    ~/src/dotfiles/install.sh --non-interactive' i
+    sh -e ~/src/dotfiles/install.sh --non-interactive
+' i
 EOF
     reset
 }
@@ -279,7 +280,7 @@ mkma() {
         ca-certificates dhcpcd5 iproute2 netbase
         aria2 curl iputils-ping openssh-server sshfs w3m wget
         firmware-iwlwifi iwd
-        debootstrap docker.io docker-cli nodejs npm python3-pip python3-venv
+        debootstrap docker.io docker-cli make python3-pip python3-venv
         bluez ffmpeg mpv pipewire-audio yt-dlp
         cliphist firmware-intel-graphics foot firefox wl-clipboard wlrctl wmenu xwayland
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
