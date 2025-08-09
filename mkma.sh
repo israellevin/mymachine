@@ -16,7 +16,8 @@ mkchroot() {
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
 
-    systemd-firstboot --force --root . --hostname="$host_name" --copy
+    systemd-firstboot --root . --reset
+    systemd-firstboot --root . --force --copy --hostname="$host_name"
 }
 
 mkapt() {
@@ -40,6 +41,8 @@ apt update
 apt --fix-broken install -y  # Sometimes debootstrap leaves broken packages.
 apt install -y $packages || exit 1
 apt clean
+systemctl disable bluetooth
+systemctl enable iwd
 EOF
 
     rm -rf ./fake
@@ -59,6 +62,7 @@ mkuser() {
         echo en_US.UTF-8 UTF-8 > ./etc/locale.gen
         chroot . locale-gen || true
     fi
+
     chroot . <<EOF
 groupadd wheel
 groupadd sudo
@@ -66,6 +70,8 @@ useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel,sudo i
 passwd -d root
 passwd -d i
 su -c '
+    set -e
+    rm -rf ~/src/dotfiles || true
     git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
     sh -e ~/src/dotfiles/install.sh --non-interactive
 ' i
@@ -230,7 +236,6 @@ test_on_qemu() {
     fi
     mkdir -p ./mnt
     mount "$qemu_disk" ./mnt
-    set -x
     cp --parents "$images_dir/"*.zst ./mnt/.
     umount ./mnt
     rmdir ./mnt
@@ -271,18 +276,18 @@ mkma() {
     local qemu_disk="$PWD/qemu.disk.raw"
     local initramfs_binaries=(busybox pv zstd)
     local initramfs_modules=(ext4 nvme overlay pci)
-    local base_packages=(dbus dbus-user-session systemd-sysv udev)
+    local base_packages=(dbus dbus-user-session systemd-sysv tzdata udev)
     local packages=("${base_packages[@]}"
         coreutils klibc-utils kmod util-linux
+        firmware-intel-* firmware-iwlwifi firmware-sof-signed intel-lpmd intel-media-va-driver-non-free intel-microcode
         bash bash-completion chafa console-setup git git-delta less locales man mc tmux vim
         cpio gzip tar unrar unzip zstd
-        bc bsdextrautils bsdutils mawk moreutils pciutils psmisc pv sed ripgrep usbutils
+        bc bsdextrautils bsdutils jq linux-perf mawk moreutils pciutils psmisc pv sed ripgrep usbutils
         ca-certificates dhcpcd5 iproute2 netbase
-        aria2 curl iputils-ping openssh-server sshfs w3m wget
-        firmware-iwlwifi iwd
+        aria2 curl iputils-ping iwd openssh-server rsync sshfs w3m wget
         debootstrap docker.io docker-cli make python3-pip python3-venv
         bluez ffmpeg mpv pipewire-audio yt-dlp
-        cliphist firmware-intel-graphics foot firefox wl-clipboard wlrctl wmenu xwayland
+        cliphist foot fonts-noto-color-emoji firefox wl-clipboard wlsunset wlrctl wmenu xwayland
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
         libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
@@ -301,9 +306,16 @@ mkma() {
         fi
     fi
 
+    mount --bind /proc ./proc
+    trap 'umount ./proc' EXIT INT TERM HUP
+
     mkapt "${packages[@]}"
     mkdwl
     mkuser
+
+    umount ./proc
+    trap - EXIT INT TERM HUP
+
     mkcpio "$COMPRESSION_LEVEL" > "$base_image"
 
     mkcleancd "$initramfs_dir"
@@ -312,7 +324,7 @@ mkma() {
 
     if ! [ "$DISABLE_QEMU_TESTING" ]; then
         echo Testing mkma on QEMU...
-        test_on_qemu /boot/vmlinuz-$(uname -r) "$initramfs_image" "$(dirname "$base_image")" "$qemu_disk" 4G
+        test_on_qemu /boot/vmlinuz-$(uname -r) "$initramfs_image" "$(dirname "$base_image")" "$qemu_disk" 8G
     fi
 
     echo kernel: /boot/vmlinuz-$(uname -r)
