@@ -287,7 +287,8 @@ mkma() {
         aria2 curl iputils-ping iwd openssh-server rsync sshfs w3m wget
         debootstrap docker.io docker-cli make python3-pip python3-venv
         bluez ffmpeg mpv pipewire-audio yt-dlp
-        cliphist foot fonts-noto-color-emoji firefox wl-clipboard wlsunset wlrctl wmenu xwayland
+        cliphist foot firefox grim slurp wl-clipboard wlsunset wlrctl wmenu xwayland
+        fonts-noto fonts-noto-color-emoji
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
         libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
     )
