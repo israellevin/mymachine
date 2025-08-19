@@ -276,21 +276,34 @@ mkma() {
     local qemu_disk="$PWD/qemu.disk.raw"
     local initramfs_binaries=(busybox pv zstd)
     local initramfs_modules=(ext4 nvme overlay pci)
-    local base_packages=(dbus dbus-user-session systemd-sysv tzdata udev)
+    local base_packages=(coreutils dbus dbus-user-session klibc-utils kmod systemd-sysv tzdata udev util-linux)
     local packages=("${base_packages[@]}"
-        coreutils klibc-utils kmod util-linux
+        # Hardware support for my laptop.
         firmware-intel-* firmware-iwlwifi firmware-sof-signed intel-lpmd intel-media-va-driver-non-free intel-microcode
+        # Common utilities.
+        bc bsdextrautils bsdutils jq linux-perf mawk moreutils pciutils psmisc pv sed sudo ripgrep usbutils
+        # CLI environment.
         bash bash-completion chafa console-setup git git-delta less locales man mc tmux vim
+        # Compression and archive tools.
         cpio gzip tar unrar unzip zstd
-        bc bsdextrautils bsdutils jq linux-perf mawk moreutils pciutils psmisc pv sed ripgrep usbutils
+        # Networking infrastructure.
         ca-certificates dhcpcd5 iproute2 netbase
+        # Networking tools.
         aria2 curl iputils-ping iwd openssh-server rsync sshfs w3m wget
+        # Development tools.
         debootstrap docker.io docker-cli make python3-pip python3-venv
+        # Media tools.
         bluez ffmpeg mpv pipewire-audio yt-dlp
-        cliphist foot firefox grim slurp wl-clipboard wlsunset wlrctl wmenu xwayland
-        fonts-noto fonts-noto-color-emoji
+        # Wayland support.
+        libgles2 libinput10 libliftoff0 libseat1 seatd xdg-desktop-portal xdg-desktop-portal-wlr
+        # X support.
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
-        libxcb-render0 libxcb-res0 libxcb-xinput0 libgles2 libinput10 libliftoff0 libseat1
+        libxcb-render0 libxcb-res0 libxcb-xinput0 xwayland
+        # GUI tools.
+        cliphist foot firefox grim slurp wl-clipboard wlsunset wlrctl wmenu
+        # GUI fonts.
+        fonts-noto fonts-noto-color-emoji
+
     )
 
     if [ -f "$chroot_dir/sbin/init" ]; then
