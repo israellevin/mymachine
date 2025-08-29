@@ -1,8 +1,6 @@
 #!/bin/bash -e
 
 mkchroot() {
-    local host_name="$1"
-    shift
     local packages="$(echo "$@" | tr ' ' ',')"
     local suit=unstable
     local variant=minbase
@@ -12,12 +10,22 @@ mkchroot() {
     [ "$packages" ] && packages="--include=$packages"
     debootstrap --verbose --variant=$variant --components=$components --extra-suites=$extra_suits $packages \
         $suit . $mirror
+}
 
+mksys() {
+    local host_name="$1"
+    rm -rf ./lib/modules || true
     mkdir -p ./lib/modules
     cp -a --parents /lib/modules/"$(uname -r)" .
 
     systemd-firstboot --root . --reset
     systemd-firstboot --root . --force --copy --hostname="$host_name"
+
+    echo auth sufficient pam_wheel.so trust >> ./etc/pam.d/su
+    if [ -w ./etc/locale.gen ]; then
+        echo en_US.UTF-8 UTF-8 > ./etc/locale.gen
+        chroot . locale-gen || true
+    fi
 }
 
 mkapt() {
@@ -64,9 +72,11 @@ mkuser() {
     fi
 
     chroot . <<EOF
+groupadd audio
+groupadd video
 groupadd wheel
 groupadd sudo
-useradd --create-home --user-group --shell "\$(type -p bash)" -G wheel,sudo i
+useradd --create-home --user-group --shell "\$(type -p bash)" -G audio,video,wheel,sudo i
 passwd -d root
 passwd -d i
 su -c '
@@ -245,16 +255,16 @@ test_on_qemu() {
         -kernel "$kernel_image"
         -initrd "$initramfs_image"
         -append "console=tty root=/dev/ram0 init=/init mkma_images_device=/dev/vda mkma_images_path=$images_dir"
-        -netdev user,id=mynet0
-        -device e1000,netdev=mynet0
-        -drive file="$qemu_disk",format=raw,if=virtio,cache=none
+        -netdev 'user,id=mynet0'
+        -device 'e1000,netdev=mynet0'
+        -drive file="$qemu_disk,format=raw,if=virtio,cache=none"
         -enable-kvm
     )
 
-    if [ "$QEMU_VGA" ]; then
+    if [ "$MKMA_QEMU_VGA" ]; then
         qemu_options+=(
             -vga virtio
-            -display sdl,gl=on
+            -display 'sdl,gl=on'
         )
     fi
 
@@ -291,11 +301,11 @@ mkma() {
         # Networking tools.
         aria2 curl iputils-ping iwd openssh-server rsync sshfs w3m wget
         # Development tools.
-        debootstrap docker.io docker-cli make python3-pip python3-venv
+        debootstrap docker.io docker-cli make python3-pip python3-venv shellcheck
         # Media tools.
         bluez ffmpeg mpv pipewire-audio yt-dlp
         # Wayland support.
-        libgles2 libinput10 libliftoff0 libseat1 seatd xdg-desktop-portal xdg-desktop-portal-wlr
+        libgles2 libinput10 libliftoff0 libseat1 libwayland-server0 seatd xdg-desktop-portal xdg-desktop-portal-wlr
         # X support.
         libxcb-composite0 libxcb-errors0 libxcb-ewmh2 libxcb-icccm4 libxcb-render-util0
         libxcb-render0 libxcb-res0 libxcb-xinput0 xwayland
@@ -310,16 +320,19 @@ mkma() {
         cd "$chroot_dir"
     else
         mkcleancd "$chroot_dir"
-        mkchroot "$host_name" "${base_packages[@]}"
+        mkchroot "${base_packages[@]}"
     fi
 
-    if ! [ "$DISABLE_QEMU_TESTING" ]; then
+    mksys "$host_name"
+
+    if [ "$MKMA_QEMU_TEST" ]; then
         initramfs_modules+=(virtio_pci virtio_blk)
-        if [ "$QEMU_VGA" ]; then
+        if [ "$MKMA_QEMU_VGA" ]; then
             packages+=(mesa-utils libgl1-mesa-dri)
         fi
     fi
 
+    # Mount `/proc` for installations.
     mount --bind /proc ./proc
     trap 'umount ./proc' EXIT INT TERM HUP
 
@@ -330,13 +343,13 @@ mkma() {
     umount ./proc
     trap - EXIT INT TERM HUP
 
-    mkcpio "$COMPRESSION_LEVEL" > "$base_image"
+    mkcpio "$MKMA_COMPRESSION_LEVEL" > "$base_image"
 
     mkcleancd "$initramfs_dir"
     mkinitramfs "${initramfs_modules[*]}" "${initramfs_binaries[*]}"
-    mkcpio "$COMPRESSION_LEVEL" > "$initramfs_image"
+    mkcpio "$MKMA_COMPRESSION_LEVEL" > "$initramfs_image"
 
-    if ! [ "$DISABLE_QEMU_TESTING" ]; then
+    if [ "$MKMA_QEMU_TEST" ]; then
         echo Testing mkma on QEMU...
         test_on_qemu /boot/vmlinuz-$(uname -r) "$initramfs_image" "$(dirname "$base_image")" "$qemu_disk" 8G
     fi
@@ -346,4 +359,5 @@ mkma() {
     echo parameters: "mkma_images_device=$(df "$base_image" | grep -o '/dev/[^ ]*') mkma_images_path=$(dirname "$base_image")"
 }
 
+# Allow sourcing of functions for manual runs.
 (return 0 2>/dev/null) || mkma "$@"
