@@ -21,11 +21,18 @@ mksys() {
     systemd-firstboot --root . --reset
     systemd-firstboot --root . --force --copy --hostname="$host_name"
 
-    echo auth sufficient pam_wheel.so trust >> ./etc/pam.d/su
-    if [ -w ./etc/locale.gen ]; then
-        echo en_US.UTF-8 UTF-8 > ./etc/locale.gen
-        chroot . locale-gen || true
-    fi
+    insert_if_not_exists() {
+        local file="$1"
+        shift
+        local line="$*"
+        grep -q "^$line" "$file" || echo "$line" >> "$file"
+    }
+
+    insert_if_not_exists ./etc/pam.d/su auth sufficient pam_rootok.so
+    insert_if_not_exists ./etc/hosts "127.0.0.1 $host_name"
+    insert_if_not_exists ./etc/locale.gen "en_US.UTF-8 UTF-8"
+
+    chroot . locale-gen || true
 }
 
 mkapt() {
@@ -76,12 +83,14 @@ groupadd audio
 groupadd video
 groupadd wheel
 groupadd sudo
+userdel --remove i
+set -e
 useradd --create-home --user-group --shell "\$(type -p bash)" -G audio,video,wheel,sudo i
 passwd -d root
 passwd -d i
 su -c '
+    false
     set -e
-    rm -rf ~/src/dotfiles || true
     git clone https://github.com/israellevin/dotfiles.git ~/src/dotfiles
     sh -e ~/src/dotfiles/install.sh --non-interactive
 ' i
