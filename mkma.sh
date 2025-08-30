@@ -98,6 +98,45 @@ EOF
     reset
 }
 
+mksession() {
+    cat > ./etc/systemd/system/dwl.service <<'EOF'
+[Unit]
+Description=dwl
+After=graphical.target
+Requires=graphical.target
+
+[Service]
+Type=simple
+User=i
+WorkingDirectory=/home/i
+ExecStart=/usr/local/bin/dwlaunch.sh
+
+[Install]
+WantedBy=graphical.target
+EOF
+
+    cat > ./usr/local/bin/dwlaunch.sh <<'EOF'
+#!/usr/bin/sh
+LIBSEAT_BACKEND=seatd
+XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
+export XDG_RUNTIME_DIR
+export LIBSEAT_BACKEND
+
+/usr/libexec/xdg-desktop-portal-wlr -r &
+/usr/libexec/xdg-desktop-portal -r &
+
+exec dwl -s ' \
+    red & \
+    foot & \
+    brows & \
+    clip --start & \
+    wait'
+EOF
+
+    chmod +x ./usr/local/bin/dwlaunch.sh
+}
+
 mkcpio() {
     local level=$1
     find . -mount -print0 | pv -0 -l -s "$(find . | wc -l)" | cpio -o --null --format=newc | zstd -T0 -$level
@@ -348,6 +387,7 @@ mkma() {
     mkapt "${packages[@]}"
     mkdwl
     mkuser
+    mksession
 
     umount ./proc
     trap - EXIT INT TERM HUP
